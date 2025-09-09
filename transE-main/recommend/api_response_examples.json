@@ -1,0 +1,244 @@
+{
+  "start_session": {
+    "success": {
+      "status": "success",
+      "student_id": "student_001",
+      "initial_mastery": {
+        "K1": 0.1,
+        "K2": 0.1,
+        "K3": 0.05
+      },
+      "message": "学生 student_001 创建成功"
+    },
+    "error": {
+      "status": "error",
+      "message": "学生 student_001 已存在"
+    }
+  },
+  "get_questions": {
+    "success": {
+      "status": "success",
+      "student_id": "student_001",
+      "recommendations": [
+        {
+          "qid": "Q1",
+          "content": "集合A={1,2,3}，集合B={2,3,4}，求A∪B",
+          "options": [
+            "{1,2,3}",
+            "{2,3}",
+            "{1,2,3,4}",
+            "{4}"
+          ],
+          "knowledge_points": {
+            "K1": 0.9
+          },
+          "difficulty": 0.5
+        },
+        {
+          "qid": "Q7",
+          "content": "有n个顶点的完全图有多少条边？",
+          "options": [
+            "n",
+            "n-1",
+            "n(n-1)/2",
+            "n²"
+          ],
+          "knowledge_points": {
+            "K3": 0.6,
+            "K8": 0.4
+          },
+          "difficulty": 0.5
+        }
+      ],
+      "batch_number": 1
+    },
+    "error": {
+      "status": "error",
+      "message": "学生 student_001 不存在"
+    }
+  },
+  "submit_student_answers": {
+    "success": {
+      "status": "success",
+      "student_id": "student_001",
+      "batch_completed": 1,
+      "current_mastery": {
+        "K1": 0.37,
+        "K2": 0.1,
+        "K3": 0.53,
+        "K8": 0.18
+      },
+      "mastered_knowledge_points": [
+        "K3"
+      ],
+      "answer_details": [
+        {
+          "qid": "Q1",
+          "correct": true,
+          "knowledge_points": {
+            "K1": 0.9
+          },
+          "selected": "C",
+          "correct_answer": "{1,2,3,4}"
+        },
+        {
+          "qid": "Q7",
+          "correct": true,
+          "knowledge_points": {
+            "K3": 0.6,
+            "K8": 0.4
+          },
+          "selected": "C",
+          "correct_answer": "n(n-1)/2"
+        }
+      ]
+    },
+    "error": {
+      "status": "error",
+      "message": "答案格式错误，需要包含字段: ['qid', 'selected']"
+    }
+  },
+  "check_answers_only": {
+    "success": {
+      "status": "success",
+      "total_questions": 3,
+      "correct_count": 2,
+      "accuracy": 0.6666666666666666,
+      "details": [
+        {
+          "status": "success",
+          "qid": "Q1",
+          "selected": "C",
+          "selected_option": "{1,2,3,4}",
+          "correct_answer": "{1,2,3,4}",
+          "is_correct": true,
+          "knowledge_points": {
+            "K1": 0.9
+          }
+        },
+        {
+          "status": "success",
+          "qid": "Q2",
+          "selected": "B",
+          "selected_option": "R={(2,2)}",
+          "correct_answer": "R={(1,1),(2,2)}",
+          "is_correct": false,
+          "knowledge_points": {
+            "K2": 0.8
+          }
+        },
+        {
+          "status": "success",
+          "qid": "Q7",
+          "selected": "C",
+          "selected_option": "n(n-1)/2",
+          "correct_answer": "n(n-1)/2",
+          "is_correct": true,
+          "knowledge_points": {
+            "K3": 0.6,
+            "K8": 0.4
+          }
+        }
+      ]
+    },
+    "error": {
+      "status": "error",
+      "message": "题目 Q99 不存在"
+    }
+  },
+  "get_weak_points": {
+    "success": {
+      "status": "success",
+      "student_id": "student_001",
+      "weak_knowledge_points": [
+        [
+          "K2",
+          0.1
+        ],
+        [
+          "K8",
+          0.18
+        ],
+        [
+          "K6",
+          0.25
+        ]
+      ],
+      "progress_summary": {
+        "total_knowledge_points": 5,
+        "mastered": 1,
+        "moderate": 1,
+        "weak": 3,
+        "mastered_list": [
+          "K3"
+        ],
+        "weak_list": [
+          "K2",
+          "K8",
+          "K6"
+        ],
+        "average_mastery": 0.26
+      },
+      "recommendations": [
+        "🔴 K2 掌握度极低(0.10)，建议重点学习基础概念",
+        "🟡 K8 掌握度较低(0.18)，需要加强练习",
+        "🟠 K6 掌握度一般(0.25)，可以适量练习巩固",
+        "💡 建议：薄弱知识点较多，建议循序渐进，先攻克最薄弱的2-3个知识点"
+      ]
+    },
+    "error": {
+      "status": "error",
+      "message": "学生 student_001 不存在"
+    }
+  },
+  "get_session_status": {
+    "success": {
+      "status": "success",
+      "student_id": "student_001",
+      "batch_count": 2,
+      "total_questions": 5,
+      "mastery_scores": {
+        "K1": 0.37,
+        "K2": 0.1,
+        "K3": 0.53,
+        "K8": 0.18,
+        "K6": 0.25
+      },
+      "mastered_knowledge_points": [
+        "K3"
+      ],
+      "vector_norm": 1.0
+    },
+    "error": {
+      "status": "error",
+      "message": "没有活跃的学习会话"
+    }
+  },
+  "end_session": {
+    "success": {
+      "status": "success",
+      "message": "会话 student_001 已成功结束",
+      "final_status": {
+        "status": "success",
+        "student_id": "student_001",
+        "batch_count": 3,
+        "total_questions": 8,
+        "mastery_scores": {
+          "K1": 0.45,
+          "K2": 0.2,
+          "K3": 0.65,
+          "K8": 0.28,
+          "K6": 0.35
+        },
+        "mastered_knowledge_points": [
+          "K3"
+        ],
+        "vector_norm": 1.0
+      }
+    },
+    "error": {
+      "status": "error",
+      "message": "没有活跃的学习会话"
+    }
+  }
+}

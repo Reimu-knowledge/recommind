@@ -1,0 +1,83 @@
+
+# 关系规范化报告
+
+## 关系类型统计
+- 总关系类型数量: 75
+- 总三元组数量: 408
+
+## 关系类型分布
+- contains: 191 条
+- is_defined_as: 34 条
+- has_property: 23 条
+- has_formula: 21 条
+- has_condition: 20 条
+- is_equivalent_to: 14 条
+- affects: 6 条
+- related_to: 6 条
+- is_a: 5 条
+- supports: 4 条
+- implies: 4 条
+- uses_algorithm: 4 条
+- relates_to: 3 条
+- associated_with: 3 条
+- applies_to: 3 条
+- related_to_max_degree: 2 条
+- constrained_by: 2 条
+- can_model: 2 条
+- may_have: 2 条
+- preserves_property: 2 条
+- requires: 2 条
+- implies_condition: 2 条
+- no_triangle_structure: 1 条
+- vertex_cover_equals_max_matching: 1 条
+- matching_problem_has_special_properties: 1 条
+- application_relation: 1 条
+- application_in: 1 条
+- can_transform_to_tree_subgraph: 1 条
+- suitable_for_bipartite_matching_algorithm: 1 条
+- application: 1 条
+- can_be_transformed_into: 1 条
+- allows: 1 条
+- satisfies_property: 1 条
+- affected_by_max_degree: 1 条
+- implicit_connection: 1 条
+- used_in: 1 条
+- is_necessary_for: 1 条
+- can_be_bicolored: 1 条
+- is_essential_for: 1 条
+- is_bipartite: 1 条
+- has_chromatic_number_2: 1 条
+- contains_perfect_matching_under_certain_conditions: 1 条
+- can_be_used_for_bipartite_network_analysis: 1 条
+- has_spanning_forest_structure: 1 条
+- may_be_planar: 1 条
+- impacts: 1 条
+- converts_to: 1 条
+- can_be_applied_to: 1 条
+- utilizes: 1 条
+- transforms_to: 1 条
+- has_max_edges: 1 条
+- related_to_connectivity: 1 条
+- involves_coloring: 1 条
+- may_be_tree_structure: 1 条
+- related_theorem: 1 条
+- derived_property: 1 条
+- application_scenario: 1 条
+- related_concept: 1 条
+- related_structure: 1 条
+- chromatic_number_equals: 1 条
+- matching_number_equals: 1 条
+- not_planar_when: 1 条
+- min_vertex_cover_equals: 1 条
+- contains_spanning_tree: 1 条
+- constitutes: 1 条
+- applied_in: 1 条
+- can_be: 1 条
+- can_have: 1 条
+- can_represent: 1 条
+- and: 1 条
+- involves: 1 条
+- can_degenerate_to: 1 条
+- can_convert_to: 1 条
+- corresponds_to: 1 条
+- derivation_relation: 1 条
