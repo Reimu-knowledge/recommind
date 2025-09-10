@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>前端调试测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { color: green; }
+        .error { color: red; }
+        .question { margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 3px; }
+        .weak-point { margin: 10px 0; padding: 10px; background: #fff3cd; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>前端调试测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 创建学生和开始会话</h2>
+        <button onclick="createStudentAndSession()">创建学生并开始会话</button>
+        <div id="student-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 获取薄弱知识点</h2>
+        <button onclick="getWeakPoints()">获取薄弱知识点</button>
+        <div id="weak-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 测试知识点题目获取</h2>
+        <button onclick="testK3Questions()">测试K3题目</button>
+        <div id="k3-result"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5000';
+        let currentStudentId = 'test_debug_student';
+        
+        async function createStudentAndSession() {
+            const resultDiv = document.getElementById('student-result');
+            resultDiv.innerHTML = '<p>正在创建学生...</p>';
+            
+            try {
+                // 创建学生
+                const createResponse = await fetch(`${API_BASE_URL}/api/students`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: currentStudentId,
+                        name: '调试测试学生',
+                        grade: '大学'
+                    })
+                });
+                
+                if (!createResponse.ok) {
+                    throw new Error(`创建学生失败: ${createResponse.status}`);
+                }
+                
+                // 开始学习会话
+                const sessionResponse = await fetch(`${API_BASE_URL}/api/students/${currentStudentId}/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_name: '调试测试会话' })
+                });
+                
+                if (!sessionResponse.ok) {
+                    throw new Error(`开始学习会话失败: ${sessionResponse.status}`);
+                }
+                
+                resultDiv.innerHTML = '<p class="success">✅ 学生创建成功，学习会话已开始</p>';
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 失败: ${error.message}</p>`;
+            }
+        }
+        
+        async function getWeakPoints() {
+            const resultDiv = document.getElementById('weak-result');
+            resultDiv.innerHTML = '<p>正在获取薄弱知识点...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/students/${currentStudentId}/weak-points?threshold=0.3`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    let html = `<p class="success">✅ 成功获取薄弱知识点</p>`;
+                    html += `<p>薄弱知识点数量: ${result.weak_knowledge_points.length}</p>`;
+                    
+                    if (result.weak_knowledge_points.length > 0) {
+                        html += '<h3>薄弱知识点列表:</h3>';
+                        result.weak_knowledge_points.forEach((kp, index) => {
+                            html += `<div class="weak-point">`;
+                            html += `<strong>${index + 1}. ${kp.id}:</strong> ${kp.name}<br>`;
+                            html += `<strong>掌握度:</strong> ${kp.score.toFixed(3)}`;
+                            html += `</div>`;
+                        });
+                    } else {
+                        html += '<p>暂无薄弱知识点（这是正常的，因为还没有答题记录）</p>';
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<p class="error">❌ 获取失败: ${result.message}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 请求异常: ${error.message}</p>`;
+            }
+        }
+        
+        async function testK3Questions() {
+            const resultDiv = document.getElementById('k3-result');
+            resultDiv.innerHTML = '<p>正在测试K3题目获取...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/questions/by-knowledge-point/K3`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    let html = `<p class="success">✅ 成功获取K3题目</p>`;
+                    html += `<p>题目数量: ${result.total_count}</p>`;
+                    html += `<p>知识点名称: ${result.knowledge_point_name}</p>`;
+                    
+                    // 模拟前端的数据转换
+                    const frontendQuestions = result.questions.map((q, index) => ({
+                        id: parseInt(q.qid.replace('Q', '')),
+                        title: q.content,
+                        type: '选择题',
+                        options: q.options.map((opt, optIndex) => ({
+                            key: String.fromCharCode(65 + optIndex),
+                            text: opt
+                        })),
+                        correctAnswer: '',
+                        explanation: '',
+                        knowledgePoint: 'K3'
+                    }));
+                    
+                    html += '<h3>前端转换后的题目格式:</h3>';
+                    frontendQuestions.slice(0, 3).forEach((q, index) => {
+                        html += `<div class="question">`;
+                        html += `<strong>${index + 1}. ID: ${q.id}, 标题: ${q.title}</strong><br>`;
+                        html += `<strong>选项:</strong> `;
+                        q.options.forEach(opt => {
+                            html += `${opt.key}. ${opt.text} `;
+                        });
+                        html += `</div>`;
+                    });
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<p class="error">❌ 获取失败: ${result.message}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 请求异常: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

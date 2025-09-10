@@ -82,22 +82,61 @@ export const apiHelper = {
     }
   },
 
-  // 获取错因分析
-  getErrorAnalysis: async (question: Question, selectedOption: string) => {
+  // 创建学生
+  createStudent: async (studentData: {
+    id: string
+    name: string
+    email?: string
+    grade?: string
+  }) => {
+    try {
+      const student = await studentApi.createStudent(studentData)
+      return student
+    } catch (error) {
+      console.error('创建学生失败:', error)
+      throw error
+    }
+  },
+
+  // 开始学习会话
+  startLearningSession: async (sessionName?: string) => {
     const user = auth.getUser()
     if (!user) {
       throw new Error('用户未登录')
     }
 
     try {
-      const analysis = await studentApi.getErrorAnalysis({
-        questionId: question.id.toString(),
-        studentId: user.username,
-        selectedOption
-      })
-      return analysis
+      const session = await studentApi.startLearningSession(user.username, sessionName)
+      return session
     } catch (error) {
-      console.error('获取错因分析失败:', error)
+      console.error('开始学习会话失败:', error)
+      throw error
+    }
+  },
+
+  // 获取学生信息
+  getStudentInfo: async () => {
+    const user = auth.getUser()
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    try {
+      const studentInfo = await studentApi.getStudentInfo(user.username)
+      return studentInfo
+    } catch (error) {
+      console.error('获取学生信息失败:', error)
+      throw error
+    }
+  },
+
+  // 根据知识点获取题目
+  getQuestionsByKnowledgePoint: async (knowledgePointId: string) => {
+    try {
+      const questions = await studentApi.getQuestionsByKnowledgePoint(knowledgePointId)
+      return questions
+    } catch (error) {
+      console.error('获取知识点题目失败:', error)
       throw error
     }
   }

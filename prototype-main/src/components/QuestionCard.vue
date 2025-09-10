@@ -18,10 +18,17 @@
             v-for="(option, index) in question.options" 
             :key="index"
             class="option-item"
+            :class="{
+              'correct-option': showFeedback && option.key === correctAnswer,
+              'selected-option': showFeedback && option.key === selectedAnswer,
+              'wrong-option': showFeedback && option.key === selectedAnswer && !isCorrect
+            }"
           >
             <el-radio :value="option.key" class="option-radio">
               <span class="option-content">
                 <strong>{{ option.key }}.</strong> {{ option.text }}
+                <span v-if="showFeedback && option.key === correctAnswer" class="correct-badge">✓ 正确答案</span>
+                <span v-if="showFeedback && option.key === selectedAnswer && !isCorrect" class="wrong-badge">✗ 您的答案</span>
               </span>
             </el-radio>
           </div>
@@ -48,57 +55,22 @@
           :closable="false"
         >
           <div class="feedback-content">
-            <p><strong>正确答案：</strong>{{ correctAnswer }}</p>
-            <div class="explanation-section">
-              <div class="action-buttons">
-                <el-button 
-                  v-if="!showExplanation" 
-                  type="primary" 
-                  size="small"
-                  @click="getExplanation"
-                  :loading="explanationLoading"
-                >
-                  获取解析
-                </el-button>
-                <el-button 
-                  v-if="!isCorrect && !showErrorAnalysis" 
-                  type="warning" 
-                  size="small"
-                  @click="getErrorAnalysis"
-                  :loading="errorAnalysisLoading"
-                >
-                  错因分析
-                </el-button>
-              </div>
+            <div class="answer-result">
+              <p><strong>您的答案：</strong><span class="user-answer">{{ selectedAnswer }}. {{ getOptionText(selectedAnswer) }}</span></p>
+              <p><strong>正确答案：</strong><span class="correct-answer">{{ getOptionKeyByText(correctAnswer) }}. {{ correctAnswer }}</span></p>
+            </div>
+            <div class="explanation-section" v-if="!isCorrect">
+              <el-button 
+                v-if="!showExplanation" 
+                type="warning" 
+                size="small"
+                @click="getExplanation"
+                :loading="explanationLoading"
+              >
+                错因分析
+              </el-button>
               <div v-if="showExplanation" class="explanation-content">
-                <p><strong>解析：</strong>{{ explanationText }}</p>
-              </div>
-              <div v-if="showErrorAnalysis" class="error-analysis-content">
-                <div class="analysis-header">
-                  <el-icon><Warning /></el-icon>
-                  <span>错因分析</span>
-                </div>
-                <div class="analysis-text">
-                  <p>{{ errorAnalysisText }}</p>
-                </div>
-                <div v-if="errorConcepts && errorConcepts.length > 0" class="error-concepts">
-                  <p><strong>涉及的知识点：</strong></p>
-                  <el-tag 
-                    v-for="concept in errorConcepts.slice(0, 5)" 
-                    :key="concept"
-                    type="warning"
-                    size="small"
-                    class="concept-tag"
-                  >
-                    {{ concept }}
-                  </el-tag>
-                </div>
-                <div v-if="suggestions && suggestions.length > 0" class="suggestions">
-                  <p><strong>学习建议：</strong></p>
-                  <ul>
-                    <li v-for="suggestion in suggestions" :key="suggestion">{{ suggestion }}</li>
-                  </ul>
-                </div>
+                <p><strong>错因分析：</strong>{{ explanationText }}</p>
               </div>
             </div>
           </div>
@@ -111,7 +83,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Warning } from '@element-plus/icons-vue';
 import { apiHelper } from '../utils/api-helper';
 
 interface QuestionOption {
@@ -141,19 +112,26 @@ const selectedAnswer = ref('');
 const submitting = ref(false);
 const showFeedback = ref(false);
 const isCorrect = ref(false);
-const correctAnswer = ref('');
+const correctAnswer = ref(''); // 存储正确答案
 const showExplanation = ref(false);
 const explanationLoading = ref(false);
 const explanationText = ref('');
-const showErrorAnalysis = ref(false);
-const errorAnalysisLoading = ref(false);
-const errorAnalysisText = ref('');
-const errorConcepts = ref<string[]>([]);
-const suggestions = ref<string[]>([]);
 
 const handleAnswerChange = (value: string) => {
   if (showFeedback.value) return;
   selectedAnswer.value = value;
+};
+
+// 获取选项文本内容
+const getOptionText = (optionKey: string) => {
+  const option = props.question.options.find(opt => opt.key === optionKey);
+  return option ? option.text : '';
+};
+
+// 根据选项内容找到对应的选项字母
+const getOptionKeyByText = (optionText: string) => {
+  const option = props.question.options.find(opt => opt.text === optionText);
+  return option ? option.key : '';
 };
 
 const submitAnswer = async () => {
@@ -169,7 +147,7 @@ const submitAnswer = async () => {
     const response = await apiHelper.submitAnswer(props.question, selectedAnswer.value);
     
     isCorrect.value = response.isCorrect;
-    correctAnswer.value = response.correctAnswer;
+    correctAnswer.value = response.correctAnswer; // 保存正确答案
     showFeedback.value = true;
     submitting.value = false;
     
@@ -178,15 +156,13 @@ const submitAnswer = async () => {
       questionId: props.question.id,
       selectedAnswer: selectedAnswer.value,
       isCorrect: isCorrect.value,
-      correctAnswer: correctAnswer.value,
-      knowledgePoint: props.question.knowledgePoint,
-      currentMastery: response.currentMastery
+      knowledgePoint: props.question.knowledgePoint
     });
     
     if (isCorrect.value) {
       ElMessage.success('回答正确！');
     } else {
-      ElMessage.error('回答错误，点击获取解析查看详情');
+      ElMessage.error('回答错误，点击错因分析查看详情');
     }
   } catch (error) {
     submitting.value = false;
@@ -203,34 +179,13 @@ const getExplanation = async () => {
     explanationText.value = explanation;
     showExplanation.value = true;
     explanationLoading.value = false;
-    ElMessage.success('解析获取成功！');
+    ElMessage.success('错因分析获取成功！');
   } catch (error) {
     explanationLoading.value = false;
-    ElMessage.error('获取解析失败，请重试');
+    ElMessage.error('获取错因分析失败，请重试');
     // 降级到使用本地解析
     explanationText.value = props.question.explanation;
     showExplanation.value = true;
-  }
-};
-
-const getErrorAnalysis = async () => {
-  errorAnalysisLoading.value = true;
-  
-  try {
-    // 调用API获取错因分析
-    const analysis = await apiHelper.getErrorAnalysis(props.question, selectedAnswer.value);
-    errorAnalysisText.value = analysis.analysis;
-    errorConcepts.value = analysis.errorConcepts || [];
-    suggestions.value = analysis.suggestions || [];
-    showErrorAnalysis.value = true;
-    errorAnalysisLoading.value = false;
-    ElMessage.success('错因分析获取成功！');
-  } catch (error) {
-    errorAnalysisLoading.value = false;
-    ElMessage.error('获取错因分析失败，请重试');
-    // 降级到使用默认分析
-    errorAnalysisText.value = '抱歉，暂时无法获取详细的错因分析，建议您复习相关知识点。';
-    showErrorAnalysis.value = true;
   }
 };
 </script>
@@ -288,6 +243,23 @@ const getErrorAnalysis = async () => {
   border-color: #409EFF;
 }
 
+.correct-option {
+  background: #f0f9ff !important;
+  border-color: #67c23a !important;
+  border-width: 2px !important;
+}
+
+.selected-option {
+  background: #e1f3d8 !important;
+  border-color: #67c23a !important;
+}
+
+.wrong-option {
+  background: #fef2f2 !important;
+  border-color: #f56c6c !important;
+  border-width: 2px !important;
+}
+
 .option-radio {
   width: 100%;
 }
@@ -336,18 +308,11 @@ const getErrorAnalysis = async () => {
   margin-top: 12px;
 }
 
-.action-buttons {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
 .explanation-content {
   margin-top: 12px;
   padding: 12px;
   background: #f8f9fa;
   border-radius: 6px;
-  border-left: 4px solid #409EFF;
 }
 
 .explanation-content p {
@@ -356,62 +321,56 @@ const getErrorAnalysis = async () => {
   line-height: 1.6;
 }
 
-.error-analysis-content {
-  margin-top: 12px;
-  padding: 16px;
-  background: #fef7e6;
+.answer-result {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
   border-radius: 8px;
-  border-left: 4px solid #E6A23C;
+  border-left: 4px solid #409EFF;
 }
 
-.analysis-header {
+.answer-result p {
+  margin: 8px 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+}
+
+.user-answer {
+  padding: 4px 8px;
+  background: #e1f3d8;
+  color: #67c23a;
+  border-radius: 4px;
   font-weight: 600;
-  color: #E6A23C;
+  font-size: 14px;
 }
 
-.analysis-text {
-  margin-bottom: 16px;
-}
-
-.analysis-text p {
-  margin: 0;
-  line-height: 1.6;
-  color: #2c3e50;
-}
-
-.error-concepts {
-  margin-bottom: 16px;
-}
-
-.error-concepts p {
-  margin: 0 0 8px 0;
+.correct-answer {
+  padding: 4px 8px;
+  background: #f0f9ff;
+  color: #409eff;
+  border-radius: 4px;
   font-weight: 600;
-  color: #2c3e50;
+  font-size: 14px;
 }
 
-.concept-tag {
-  margin-right: 8px;
-  margin-bottom: 4px;
-}
-
-.suggestions p {
-  margin: 0 0 8px 0;
+.correct-badge {
+  float: right;
+  padding: 2px 6px;
+  background: #67c23a;
+  color: white;
+  border-radius: 12px;
+  font-size: 12px;
   font-weight: 600;
-  color: #2c3e50;
 }
 
-.suggestions ul {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.suggestions li {
-  margin-bottom: 4px;
-  line-height: 1.5;
-  color: #2c3e50;
+.wrong-badge {
+  float: right;
+  padding: 2px 6px;
+  background: #f56c6c;
+  color: white;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
 }
 </style>

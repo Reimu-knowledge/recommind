@@ -20,8 +20,6 @@ export interface Question {
   correctAnswer: string
   explanation: string
   knowledgePoint: string
-  difficulty?: number
-  score?: number
 }
 
 export interface AnswerResult {

@@ -45,7 +45,7 @@
           
           <div class="weak-points-list">
             <div 
-              v-for="point in studentStore.weakKnowledgePoints" 
+              v-for="point in weakKnowledgePoints" 
               :key="point.id"
               class="weak-point-item"
               @click="selectWeakPoint(point)"
@@ -66,7 +66,7 @@
             </div>
             
             <!-- 空状态 -->
-            <div v-if="studentStore.weakKnowledgePoints.length === 0" class="empty-weak-points">
+            <div v-if="weakKnowledgePoints.length === 0" class="empty-weak-points">
               <el-icon><CircleCheck /></el-icon>
               <p>暂无薄弱知识点</p>
             </div>
@@ -174,79 +174,88 @@ import { Refresh, TrendCharts, MagicStick, Warning, CircleCheck } from '@element
 import KnowledgeGraph from '../components/KnowledgeGraph.vue';
 import QuestionCard from '../components/QuestionCard.vue';
 import LargeKnowledgeGraph from '../components/LargeKnowledgeGraph.vue';
-import { useStudentStore } from '../stores/student';
+import { studentApi } from '../api/student';
 import { auth } from '../utils/auth';
 
 const router = useRouter();
-const studentStore = useStudentStore();
 
 // 响应式数据
 const recommendLoading = ref(false);
 const weakPointLoading = ref(false);
 const currentView = ref('default'); // 'default', 'smart', 'weak', 'graph'
 const selectedWeakPoint = ref<any>(null); // 当前选中的薄弱知识点
+const currentStudentId = ref(''); // 当前学生ID
+const currentSessionId = ref<number | null>(null); // 当前学习会话ID
+
+// 薄弱知识点数据
+const weakKnowledgePoints = ref<any[]>([]);
+
+// 题目数据
+const questions = ref<any[]>([]);
+const smartRecommendedQuestions = ref<any[]>([]);
 
 // 计算属性
 const filteredQuestions = computed(() => {
-  return studentStore.questions;
-});
-
-// 智能推荐题目
-const smartRecommendedQuestions = computed(() => {
-  return studentStore.smartQuestions;
+  return questions.value;
 });
 
 // 薄弱知识点题目  
 const weakPointQuestions = computed(() => {
-  return studentStore.weakPointQuestions;
+  // 直接返回通过selectWeakPoint获取的题目
+  return questions.value;
 });
 
-const handleAnswerSubmitted = async (result: any) => {
+const handleAnswerSubmitted = (result: any) => {
   console.log('答题结果:', result);
-  
-  // 更新知识点掌握度
-  if (result.currentMastery) {
-    studentStore.updateKnowledgeMastery(result.currentMastery);
-  }
-  
-  // 刷新薄弱知识点
-  await studentStore.refreshWeakPoints();
-  
-  ElMessage.success(`答题完成！${result.isCorrect ? '回答正确' : '回答错误'}`);
+  // TODO: 更新知识点掌握度
 };
 
-const refreshQuestions = async () => {
-  ElMessage.info('正在刷新题目...');
-  await studentStore.getRecommendedQuestions();
+const refreshQuestions = () => {
   ElMessage.success('题目已刷新');
+  // TODO: 从后端获取新的推荐题目
 };
 
 const refreshSmartRecommendations = async () => {
+  if (!currentStudentId.value) {
+    ElMessage.error('学生ID不存在，请重新登录');
+    return;
+  }
+  
   recommendLoading.value = true;
   ElMessage.info('正在重新获取智能推荐题目...');
   
   try {
-    await studentStore.refreshRecommendations();
+    const recommendedQuestions = await studentApi.getRecommendedQuestions(currentStudentId.value);
+    smartRecommendedQuestions.value = recommendedQuestions;
     ElMessage.success('已为您重新推荐合适的题目！');
+    currentView.value = 'smart';
   } catch (error) {
-    ElMessage.error('获取推荐题目失败，请稍后重试');
+    console.error('获取智能推荐失败:', error);
+    ElMessage.error('获取推荐题目失败，请重试');
   } finally {
     recommendLoading.value = false;
   }
 };
 
 const selectWeakPoint = async (point: any) => {
+  if (!currentStudentId.value) {
+    ElMessage.error('学生ID不存在，请重新登录');
+    return;
+  }
+  
   weakPointLoading.value = true;
   selectedWeakPoint.value = point;
   ElMessage.info(`正在获取"${point.name}"的专项练习题目...`);
   
   try {
-    // 获取针对特定知识点的题目
-    await studentStore.getRecommendedQuestions([point.id]);
-    ElMessage.success(`已获取"${point.name}"的练习题目！`);
+    // 根据知识点ID获取相关题目
+    const relatedQuestions = await studentApi.getQuestionsByKnowledgePoint(point.id);
+    questions.value = relatedQuestions;
+    ElMessage.success(`已获取"${point.name}"的${relatedQuestions.length}道练习题目！`);
     currentView.value = 'weak';
   } catch (error) {
-    ElMessage.error('获取专项题目失败，请稍后重试');
+    console.error('获取薄弱知识点题目失败:', error);
+    ElMessage.error('获取专项练习题目失败，请重试');
   } finally {
     weakPointLoading.value = false;
   }
@@ -259,18 +268,73 @@ const logout = () => {
   router.push('/login');
 };
 
-onMounted(async () => {
-  // 获取当前用户信息
+// 初始化学生数据
+const initializeStudent = async () => {
   const user = auth.getUser();
-  if (user) {
-    studentStore.setStudentId(user.username);
-    
-    // 初始化加载数据
-    await Promise.all([
-      studentStore.getRecommendedQuestions(),
-      studentStore.getWeakKnowledgePoints()
-    ]);
+  if (!user) {
+    ElMessage.error('用户未登录');
+    router.push('/login');
+    return;
   }
+  
+  currentStudentId.value = user.username;
+  
+  try {
+    // 检查学生是否存在，如果不存在则创建
+    try {
+      await studentApi.getStudentInfo(currentStudentId.value);
+    } catch (error) {
+      // 学生不存在，创建新学生
+      ElMessage.info('正在创建学生档案...');
+      await studentApi.createStudent({
+        id: currentStudentId.value,
+        name: user.username,
+        grade: '大学'
+      });
+      ElMessage.success('学生档案创建成功！');
+    }
+    
+    // 开始学习会话
+    const session = await studentApi.startLearningSession(currentStudentId.value, '学习会话');
+    currentSessionId.value = session.id;
+    
+    // 获取薄弱知识点
+    await loadWeakKnowledgePoints();
+    
+    // 获取初始推荐题目
+    await loadInitialQuestions();
+    
+  } catch (error) {
+    console.error('初始化学生数据失败:', error);
+    ElMessage.error('初始化失败，请刷新页面重试');
+  }
+};
+
+// 加载薄弱知识点
+const loadWeakKnowledgePoints = async () => {
+  try {
+    const weakPoints = await studentApi.getWeakKnowledgePoints(currentStudentId.value);
+    weakKnowledgePoints.value = weakPoints;
+  } catch (error) {
+    console.error('获取薄弱知识点失败:', error);
+    ElMessage.warning('获取薄弱知识点失败');
+  }
+};
+
+// 加载初始题目
+const loadInitialQuestions = async () => {
+  try {
+    const recommendedQuestions = await studentApi.getRecommendedQuestions(currentStudentId.value);
+    questions.value = recommendedQuestions;
+    smartRecommendedQuestions.value = recommendedQuestions.slice(0, 3);
+  } catch (error) {
+    console.error('获取推荐题目失败:', error);
+    ElMessage.warning('获取推荐题目失败');
+  }
+};
+
+onMounted(() => {
+  initializeStudent();
 });
 </script>
 
@@ -510,5 +574,3 @@ onMounted(async () => {
   background: #a8a8a8;
 }
 </style>
-
-

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>完整流程测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        .question { margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 3px; }
+        .weak-point { margin: 10px 0; padding: 10px; background: #fff3cd; border-radius: 3px; cursor: pointer; }
+        .weak-point:hover { background: #ffeaa7; }
+        .step { margin: 10px 0; padding: 10px; background: #e8f4fd; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>完整流程测试 - 模拟前端Vue应用</h1>
+    
+    <div class="test-section">
+        <h2>步骤1: 初始化学生数据</h2>
+        <button onclick="step1_initializeStudent()">初始化学生</button>
+        <div id="step1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>步骤2: 获取薄弱知识点</h2>
+        <button onclick="step2_getWeakPoints()">获取薄弱知识点</button>
+        <div id="step2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>步骤3: 模拟答题（创建薄弱知识点）</h2>
+        <button onclick="step3_simulateAnswers()">模拟答题</button>
+        <div id="step3-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>步骤4: 重新获取薄弱知识点</h2>
+        <button onclick="step4_getWeakPointsAgain()">重新获取薄弱知识点</button>
+        <div id="step4-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>步骤5: 点击薄弱知识点获取题目</h2>
+        <div id="weak-points-list"></div>
+        <div id="step5-result"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5000';
+        let currentStudentId = 'test_complete_flow_student';
+        let currentSessionId = null;
+        let weakKnowledgePoints = [];
+        
+        async function step1_initializeStudent() {
+            const resultDiv = document.getElementById('step1-result');
+            resultDiv.innerHTML = '<div class="step">正在初始化学生...</div>';
+            
+            try {
+                // 创建学生
+                const createResponse = await fetch(`${API_BASE_URL}/api/students`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: currentStudentId,
+                        name: '完整流程测试学生',
+                        grade: '大学'
+                    })
+                });
+                
+                if (!createResponse.ok) {
+                    throw new Error(`创建学生失败: ${createResponse.status}`);
+                }
+                
+                // 开始学习会话
+                const sessionResponse = await fetch(`${API_BASE_URL}/api/students/${currentStudentId}/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_name: '完整流程测试会话' })
+                });
+                
+                if (!sessionResponse.ok) {
+                    throw new Error(`开始学习会话失败: ${sessionResponse.status}`);
+                }
+                
+                const sessionData = await sessionResponse.json();
+                currentSessionId = sessionData.data.id;
+                
+                resultDiv.innerHTML = '<div class="step success">✅ 学生初始化成功</div>';
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="step error">❌ 初始化失败: ${error.message}</div>`;
+            }
+        }
+        
+        async function step2_getWeakPoints() {
+            const resultDiv = document.getElementById('step2-result');
+            resultDiv.innerHTML = '<div class="step">正在获取薄弱知识点...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/students/${currentStudentId}/weak-points?threshold=0.3`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    weakKnowledgePoints = result.weak_knowledge_points;
+                    
+                    let html = '<div class="step success">✅ 成功获取薄弱知识点</div>';
+                    html += `<div class="step">薄弱知识点数量: ${weakKnowledgePoints.length}</div>`;
+                    
+                    if (weakKnowledgePoints.length > 0) {
+                        html += '<div class="step">薄弱知识点列表:</div>';
+                        weakKnowledgePoints.forEach((kp, index) => {
+                            html += `<div class="weak-point" onclick="selectWeakPoint('${kp.id}', '${kp.name}')">`;
+                            html += `<strong>${index + 1}. ${kp.id}:</strong> ${kp.name}<br>`;
+                            html += `<strong>掌握度:</strong> ${kp.score.toFixed(3)}`;
+                            html += `</div>`;
+                        });
+                    } else {
+                        html += '<div class="step warning">⚠️ 暂无薄弱知识点（需要先答题）</div>';
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="step error">❌ 获取失败: ${result.message}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="step error">❌ 请求异常: ${error.message}</div>`;
+            }
+        }
+        
+        async function step3_simulateAnswers() {
+            const resultDiv = document.getElementById('step3-result');
+            resultDiv.innerHTML = '<div class="step">正在模拟答题...</div>';
+            
+            try {
+                // 模拟答错几道题，创建薄弱知识点
+                const wrongAnswers = [
+                    { questionId: 'Q6', selectedOption: 'B', correctOption: 'A' },
+                    { questionId: 'Q7', selectedOption: 'A', correctOption: 'B' },
+                    { questionId: 'Q16', selectedOption: 'C', correctOption: 'B' }
+                ];
+                
+                let html = '<div class="step">模拟答题结果:</div>';
+                
+                for (const answer of wrongAnswers) {
+                    const response = await fetch(`${API_BASE_URL}/api/students/${currentStudentId}/answers`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            question_id: answer.questionId,
+                            selected_option: answer.selectedOption,
+                            correct_option: answer.correctOption,
+                            is_correct: false,
+                            session_id: currentSessionId
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        html += `<div class="step">✅ ${answer.questionId}: 答错 (选择${answer.selectedOption}, 正确答案${answer.correctOption})</div>`;
+                    } else {
+                        html += `<div class="step error">❌ ${answer.questionId}: 提交失败</div>`;
+                    }
+                }
+                
+                html += '<div class="step success">✅ 答题模拟完成</div>';
+                resultDiv.innerHTML = html;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="step error">❌ 模拟答题失败: ${error.message}</div>`;
+            }
+        }
+        
+        async function step4_getWeakPointsAgain() {
+            const resultDiv = document.getElementById('step4-result');
+            resultDiv.innerHTML = '<div class="step">正在重新获取薄弱知识点...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/students/${currentStudentId}/weak-points?threshold=0.3`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    weakKnowledgePoints = result.weak_knowledge_points;
+                    
+                    let html = '<div class="step success">✅ 重新获取薄弱知识点成功</div>';
+                    html += `<div class="step">薄弱知识点数量: ${weakKnowledgePoints.length}</div>`;
+                    
+                    if (weakKnowledgePoints.length > 0) {
+                        html += '<div class="step">薄弱知识点列表:</div>';
+                        weakKnowledgePoints.forEach((kp, index) => {
+                            html += `<div class="weak-point" onclick="selectWeakPoint('${kp.id}', '${kp.name}')">`;
+                            html += `<strong>${index + 1}. ${kp.id}:</strong> ${kp.name}<br>`;
+                            html += `<strong>掌握度:</strong> ${kp.score.toFixed(3)}`;
+                            html += `</div>`;
+                        });
+                        
+                        // 更新步骤5的薄弱知识点列表
+                        document.getElementById('weak-points-list').innerHTML = html;
+                    } else {
+                        html += '<div class="step warning">⚠️ 仍然没有薄弱知识点</div>';
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="step error">❌ 获取失败: ${result.message}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="step error">❌ 请求异常: ${error.message}</div>`;
+            }
+        }
+        
+        async function selectWeakPoint(knowledgePointId, knowledgePointName) {
+            const resultDiv = document.getElementById('step5-result');
+            resultDiv.innerHTML = `<div class="step">正在获取"${knowledgePointName}"的题目...</div>`;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/questions/by-knowledge-point/${knowledgePointId}`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    let html = `<div class="step success">✅ 成功获取"${knowledgePointName}"的题目</div>`;
+                    html += `<div class="step">题目数量: ${result.total_count}</div>`;
+                    
+                    // 模拟前端的数据转换
+                    const frontendQuestions = result.questions.map((q, index) => ({
+                        id: parseInt(q.qid.replace('Q', '')),
+                        title: q.content,
+                        type: '选择题',
+                        options: q.options.map((opt, optIndex) => ({
+                            key: String.fromCharCode(65 + optIndex),
+                            text: opt
+                        })),
+                        correctAnswer: '',
+                        explanation: '',
+                        knowledgePoint: knowledgePointId
+                    }));
+                    
+                    html += '<div class="step">前端转换后的题目格式:</div>';
+                    frontendQuestions.slice(0, 5).forEach((q, index) => {
+                        html += `<div class="question">`;
+                        html += `<strong>${index + 1}. ID: ${q.id}</strong><br>`;
+                        html += `<strong>标题:</strong> ${q.title}<br>`;
+                        html += `<strong>选项:</strong> `;
+                        q.options.forEach(opt => {
+                            html += `${opt.key}. ${opt.text} `;
+                        });
+                        html += `</div>`;
+                    });
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="step error">❌ 获取失败: ${result.message}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="step error">❌ 请求异常: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
