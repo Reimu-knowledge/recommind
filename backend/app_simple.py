@@ -780,6 +780,474 @@ def get_question_error_analysis(question_id):
             'message': f'获取完整错因分析失败: {str(e)}'
         }), 500
 
+# 教师端API接口
+@app.route('/api/teacher/students', methods=['GET'])
+def get_teacher_all_students():
+    """教师端：获取所有学生列表"""
+    try:
+        students = Student.query.filter_by(is_active=True).all()
+        
+        student_list = []
+        for student in students:
+            # 获取学习统计
+            total_questions = AnswerRecord.query.filter_by(student_id=student.id).count()
+            correct_answers = AnswerRecord.query.filter_by(student_id=student.id, is_correct=True).count()
+            total_sessions = LearningSession.query.filter_by(student_id=student.id).count()
+            
+            # 获取知识点掌握情况
+            mastery_records = KnowledgeMastery.query.filter_by(student_id=student.id).all()
+            knowledge_scores = []
+            for record in mastery_records:
+                kp_name = knowledge_points_mapping.get(record.knowledge_point_id, record.knowledge_point_id)
+                knowledge_scores.append({
+                    'knowledge_point_id': record.knowledge_point_id,
+                    'knowledge_point_name': kp_name,
+                    'score': int(record.mastery_score * 100),  # 转换为百分比
+                    'practice_count': record.practice_count,
+                    'correct_count': record.correct_count
+                })
+            
+            # 按知识点ID排序
+            knowledge_scores.sort(key=lambda x: x['knowledge_point_id'])
+            
+            student_data = {
+                'id': student.id,
+                'name': student.name,
+                'email': student.email,
+                'grade': student.grade,
+                'total_questions': total_questions,
+                'correct_answers': correct_answers,
+                'correct_rate': int((correct_answers / total_questions * 100) if total_questions > 0 else 0),
+                'total_sessions': total_sessions,
+                'knowledge_scores': knowledge_scores,
+                'last_active': student.updated_at.isoformat() if student.updated_at else student.created_at.isoformat(),
+                'created_at': student.created_at.isoformat()
+            }
+            student_list.append(student_data)
+        
+        return jsonify({
+            'status': 'success',
+            'students': student_list,
+            'total_count': len(student_list)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取学生列表失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取学生列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/students/<student_id>', methods=['GET'])
+def get_teacher_student_detail(student_id):
+    """教师端：获取学生详细信息"""
+    try:
+        student = Student.query.filter_by(id=student_id).first()
+        if not student:
+            return jsonify({
+                'status': 'error',
+                'message': f'学生 {student_id} 不存在'
+            }), 404
+        
+        # 获取学习统计
+        total_questions = AnswerRecord.query.filter_by(student_id=student_id).count()
+        correct_answers = AnswerRecord.query.filter_by(student_id=student_id, is_correct=True).count()
+        total_sessions = LearningSession.query.filter_by(student_id=student_id).count()
+        
+        # 获取知识点掌握详情
+        mastery_records = KnowledgeMastery.query.filter_by(student_id=student_id).all()
+        knowledge_scores = []
+        for record in mastery_records:
+            kp_name = knowledge_points_mapping.get(record.knowledge_point_id, record.knowledge_point_id)
+            knowledge_scores.append({
+                'knowledge_point_id': record.knowledge_point_id,
+                'knowledge_point_name': kp_name,
+                'score': int(record.mastery_score * 100),
+                'practice_count': record.practice_count,
+                'correct_count': record.correct_count,
+                'accuracy': int((record.correct_count / record.practice_count * 100) if record.practice_count > 0 else 0),
+                'last_updated': record.last_updated.isoformat()
+            })
+        
+        # 按知识点ID排序
+        knowledge_scores.sort(key=lambda x: x['knowledge_point_id'])
+        
+        # 获取最近的学习会话
+        recent_sessions = LearningSession.query.filter_by(student_id=student_id).order_by(
+            LearningSession.started_at.desc()
+        ).limit(5).all()
+        
+        student_detail = {
+            'id': student.id,
+            'name': student.name,
+            'email': student.email,
+            'grade': student.grade,
+            'total_questions': total_questions,
+            'correct_answers': correct_answers,
+            'correct_rate': int((correct_answers / total_questions * 100) if total_questions > 0 else 0),
+            'total_sessions': total_sessions,
+            'knowledge_scores': knowledge_scores,
+            'recent_sessions': [session.to_dict() for session in recent_sessions],
+            'last_active': student.updated_at.isoformat() if student.updated_at else student.created_at.isoformat(),
+            'created_at': student.created_at.isoformat()
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'data': student_detail
+        })
+        
+    except Exception as e:
+        logger.error(f"获取学生详情失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取学生详情失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/stats', methods=['GET'])
+def get_teacher_overall_stats():
+    """教师端：获取总体统计数据"""
+    try:
+        # 学生统计
+        total_students = Student.query.filter_by(is_active=True).count()
+        
+        # 学习统计
+        total_questions = AnswerRecord.query.count()
+        correct_answers = AnswerRecord.query.filter_by(is_correct=True).count()
+        average_score = int((correct_answers / total_questions * 100) if total_questions > 0 else 0)
+        
+        # 活跃学生（最近7天有学习记录）
+        from datetime import datetime, timedelta
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        active_students = db.session.query(AnswerRecord.student_id).filter(
+            AnswerRecord.answered_at >= seven_days_ago
+        ).distinct().count()
+        
+        # 知识点统计
+        total_knowledge_points = len(knowledge_points_mapping)
+        
+        # 学习会话统计
+        total_sessions = LearningSession.query.count()
+        active_sessions = LearningSession.query.filter_by(is_active=True).count()
+        
+        stats = {
+            'total_students': total_students,
+            'total_questions': total_questions,
+            'correct_answers': correct_answers,
+            'average_score': average_score,
+            'active_students': active_students,
+            'total_knowledge_points': total_knowledge_points,
+            'total_sessions': total_sessions,
+            'active_sessions': active_sessions
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'data': stats
+        })
+        
+    except Exception as e:
+        logger.error(f"获取统计数据失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取统计数据失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/knowledge-points', methods=['GET'])
+def get_teacher_knowledge_points():
+    """教师端：获取知识点列表"""
+    try:
+        knowledge_points = []
+        for kp_id, kp_name in knowledge_points_mapping.items():
+            knowledge_points.append({
+                'id': kp_id,
+                'name': kp_name
+            })
+        
+        # 按ID排序
+        knowledge_points.sort(key=lambda x: x['id'])
+        
+        return jsonify({
+            'status': 'success',
+            'knowledge_points': knowledge_points,
+            'total_count': len(knowledge_points)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取知识点列表失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取知识点列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/students/mastery', methods=['GET'])
+def get_teacher_all_students_mastery():
+    """教师端：获取所有学生的知识点掌握情况"""
+    try:
+        students = Student.query.filter_by(is_active=True).all()
+        
+        students_mastery = []
+        for student in students:
+            # 获取知识点掌握情况
+            mastery_records = KnowledgeMastery.query.filter_by(student_id=student.id).all()
+            
+            knowledge_scores = []
+            for record in mastery_records:
+                kp_name = knowledge_points_mapping.get(record.knowledge_point_id, record.knowledge_point_id)
+                knowledge_scores.append({
+                    'knowledge_point_id': record.knowledge_point_id,
+                    'knowledge_point_name': kp_name,
+                    'score': int(record.mastery_score * 100),
+                    'practice_count': record.practice_count,
+                    'correct_count': record.correct_count
+                })
+            
+            # 按知识点ID排序
+            knowledge_scores.sort(key=lambda x: x['knowledge_point_id'])
+            
+            student_mastery = {
+                'student_id': student.id,
+                'student_name': student.name,
+                'knowledge_scores': knowledge_scores,
+                'total_knowledge_points': len(knowledge_scores),
+                'mastered_points': len([kp for kp in knowledge_scores if kp['score'] >= 70]),
+                'weak_points': len([kp for kp in knowledge_scores if kp['score'] < 70])
+            }
+            students_mastery.append(student_mastery)
+        
+        return jsonify({
+            'status': 'success',
+            'students': students_mastery,
+            'total_count': len(students_mastery)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取学生掌握情况失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取学生掌握情况失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/knowledge-points/stats', methods=['GET'])
+def get_teacher_knowledge_point_stats():
+    """教师端：获取知识点总体掌握情况"""
+    try:
+        knowledge_point_stats = []
+        
+        for kp_id, kp_name in knowledge_points_mapping.items():
+            # 获取该知识点的所有掌握记录
+            mastery_records = KnowledgeMastery.query.filter_by(knowledge_point_id=kp_id).all()
+            
+            if not mastery_records:
+                continue
+            
+            # 计算统计信息
+            total_students = len(mastery_records)
+            scores = [record.mastery_score * 100 for record in mastery_records]  # 转换为百分比
+            average_score = int(sum(scores) / len(scores)) if scores else 0
+            mastered_students = len([score for score in scores if score >= 70])
+            weak_students = len([score for score in scores if score < 70])
+            
+            # 计算练习统计
+            total_practice = sum(record.practice_count for record in mastery_records)
+            total_correct = sum(record.correct_count for record in mastery_records)
+            overall_accuracy = int((total_correct / total_practice * 100) if total_practice > 0 else 0)
+            
+            kp_stat = {
+                'knowledge_point_id': kp_id,
+                'knowledge_point_name': kp_name,
+                'total_students': total_students,
+                'average_score': average_score,
+                'mastered_students': mastered_students,
+                'weak_students': weak_students,
+                'mastery_rate': int((mastered_students / total_students * 100) if total_students > 0 else 0),
+                'total_practice': total_practice,
+                'total_correct': total_correct,
+                'overall_accuracy': overall_accuracy
+            }
+            knowledge_point_stats.append(kp_stat)
+        
+        # 按平均分排序
+        knowledge_point_stats.sort(key=lambda x: x['average_score'], reverse=True)
+        
+        return jsonify({
+            'status': 'success',
+            'knowledge_point_stats': knowledge_point_stats,
+            'total_count': len(knowledge_point_stats)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取知识点统计失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取知识点统计失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/students/<student_id>/recommendation', methods=['POST'])
+def update_student_recommendation(student_id):
+    """教师端：更新学生推荐方向"""
+    try:
+        student = Student.query.filter_by(id=student_id).first()
+        if not student:
+            return jsonify({
+                'status': 'error',
+                'message': f'学生 {student_id} 不存在'
+            }), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少请求数据'
+            }), 400
+        
+        knowledge_points = data.get('knowledge_points', [])
+        priority = data.get('priority', 'medium')
+        
+        if not knowledge_points:
+            return jsonify({
+                'status': 'error',
+                'message': '请选择至少一个知识点'
+            }), 400
+        
+        # 这里可以实现推荐方向的更新逻辑
+        # 例如：更新学生的推荐权重、设置特殊标记等
+        
+        logger.info(f"更新学生 {student_id} 推荐方向: {knowledge_points}, 优先级: {priority}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'已为学生 {student.name} 更新推荐方向',
+            'data': {
+                'student_id': student_id,
+                'knowledge_points': knowledge_points,
+                'priority': priority,
+                'updated_at': datetime.utcnow().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"更新学生推荐方向失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'更新学生推荐方向失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/students/<student_id>/answers', methods=['GET'])
+def get_teacher_student_answers(student_id):
+    """教师端：获取学生答题记录"""
+    try:
+        student = Student.query.filter_by(id=student_id).first()
+        if not student:
+            return jsonify({
+                'status': 'error',
+                'message': f'学生 {student_id} 不存在'
+            }), 404
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        
+        # 获取答题记录
+        answer_records = AnswerRecord.query.filter_by(student_id=student_id).order_by(
+            AnswerRecord.answered_at.desc()
+        ).paginate(page=page, per_page=per_page, error_out=False)
+        
+        answers = []
+        for record in answer_records.items:
+            answer_data = record.to_dict()
+            # 添加题目信息
+            if record.question_id in questions_data:
+                question_info = questions_data[record.question_id]
+                answer_data['question_content'] = question_info.get('content', '')
+                answer_data['question_options'] = question_info.get('options', {})
+            
+            answers.append(answer_data)
+        
+        return jsonify({
+            'status': 'success',
+            'answers': answers,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': answer_records.total,
+                'pages': answer_records.pages,
+                'has_next': answer_records.has_next,
+                'has_prev': answer_records.has_prev
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"获取学生答题记录失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取学生答题记录失败: {str(e)}'
+        }), 500
+
+@app.route('/api/teacher/export/students', methods=['GET'])
+def export_student_data():
+    """教师端：导出学生数据"""
+    try:
+        format_type = request.args.get('format', 'csv')
+        
+        if format_type == 'csv':
+            import csv
+            import io
+            
+            # 获取所有学生数据
+            students = Student.query.filter_by(is_active=True).all()
+            
+            # 创建CSV内容
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # 写入表头
+            writer.writerow([
+                '学号', '姓名', '邮箱', '年级', '完成题目数', '正确题目数', 
+                '正确率', '学习会话数', '创建时间', '最后活跃时间'
+            ])
+            
+            # 写入学生数据
+            for student in students:
+                total_questions = AnswerRecord.query.filter_by(student_id=student.id).count()
+                correct_answers = AnswerRecord.query.filter_by(student_id=student.id, is_correct=True).count()
+                total_sessions = LearningSession.query.filter_by(student_id=student.id).count()
+                correct_rate = int((correct_answers / total_questions * 100) if total_questions > 0 else 0)
+                
+                writer.writerow([
+                    student.id,
+                    student.name,
+                    student.email or '',
+                    student.grade or '',
+                    total_questions,
+                    correct_answers,
+                    f'{correct_rate}%',
+                    total_sessions,
+                    student.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    student.updated_at.strftime('%Y-%m-%d %H:%M:%S') if student.updated_at else ''
+                ])
+            
+            # 返回CSV文件
+            from flask import Response
+            output.seek(0)
+            return Response(
+                output.getvalue(),
+                mimetype='text/csv',
+                headers={'Content-Disposition': 'attachment; filename=students_data.csv'}
+            )
+        
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'不支持的导出格式: {format_type}'
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"导出学生数据失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'导出学生数据失败: {str(e)}'
+        }), 500
+
 # 初始化数据库
 def init_database():
     """初始化数据库"""

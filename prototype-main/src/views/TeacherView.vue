@@ -125,15 +125,15 @@
               </template>
             </el-table-column>
             
-            <el-table-column prop="totalQuestions" label="完成题目" width="100" />
-            <el-table-column prop="correctRate" label="正确率" width="100">
+            <el-table-column prop="total_questions" label="完成题目" width="100" />
+            <el-table-column prop="correct_rate" label="正确率" width="100">
               <template #default="scope">
-                <el-tag :type="getCorrectRateType(scope.row.correctRate)">
-                  {{ scope.row.correctRate }}%
+                <el-tag :type="getCorrectRateType(scope.row.correct_rate)">
+                  {{ scope.row.correct_rate }}%
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="lastActive" label="最后活跃" width="150" />
+            <el-table-column prop="last_active" label="最后活跃" width="150" />
             
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="scope">
@@ -191,7 +191,7 @@
               class="knowledge-option"
               :class="{ 
                 'selected': selectedKnowledgePoints.includes(point.id),
-                'weak-point': selectedStudent && selectedStudent.scores[index] < 70
+                'weak-point': selectedStudent && getStudentKnowledgeScore(selectedStudent, point.id) < 70
               }"
               @click="toggleKnowledgePoint(point.id)"
             >
@@ -205,13 +205,13 @@
               <div class="current-score" v-if="selectedStudent">
                 <span>当前得分：</span>
                 <el-tag 
-                  :type="getScoreTagType(selectedStudent.scores[index])"
+                  :type="getScoreTagType(getStudentKnowledgeScore(selectedStudent, point.id))"
                   size="small"
                 >
-                  {{ selectedStudent.scores[index] }}分
+                  {{ getStudentKnowledgeScore(selectedStudent, point.id) }}分
                 </el-tag>
               </div>
-              <div class="weak-indicator" v-if="selectedStudent && selectedStudent.scores[index] < 70">
+              <div class="weak-indicator" v-if="selectedStudent && getStudentKnowledgeScore(selectedStudent, point.id) < 70">
                 <el-icon color="#F56C6C"><Warning /></el-icon>
                 <span>薄弱知识点</span>
               </div>
@@ -268,15 +268,15 @@
             </div>
             <div class="info-item">
               <span class="label">完成题目:</span>
-              <span class="value">{{ studentDetail.totalQuestions }}题</span>
+              <span class="value">{{ studentDetail.total_questions }}题</span>
             </div>
             <div class="info-item">
               <span class="label">正确率:</span>
-              <span class="value">{{ studentDetail.correctRate }}%</span>
+              <span class="value">{{ studentDetail.correct_rate }}%</span>
             </div>
             <div class="info-item">
               <span class="label">最后活跃:</span>
-              <span class="value">{{ studentDetail.lastActive }}</span>
+              <span class="value">{{ studentDetail.last_active }}</span>
             </div>
           </div>
         </div>
@@ -285,26 +285,26 @@
           <h4>知识点掌握详情</h4>
           <div class="score-detail-list">
             <div 
-              v-for="(score, index) in studentDetail.scores" 
-              :key="index"
+              v-for="kp in studentDetail.knowledge_scores" 
+              :key="kp.knowledge_point_id"
               class="score-detail-item"
             >
               <div class="score-detail-header">
-                <span class="knowledge-name">{{ knowledgePoints[index]?.name }}</span>
+                <span class="knowledge-name">{{ kp.knowledge_point_name }}</span>
                 <el-tag 
-                  :type="getScoreTagType(score)"
+                  :type="getScoreTagType(kp.score)"
                   size="small"
                 >
-                  {{ score }}分
+                  {{ kp.score }}分
                 </el-tag>
               </div>
               <el-progress 
-                :percentage="score" 
+                :percentage="kp.score" 
                 :stroke-width="6"
-                :color="getProgressColor(score)"
+                :color="getProgressColor(kp.score)"
                 :show-text="false"
               />
-              <div v-if="score < 70" class="weakness-note">
+              <div v-if="kp.score < 70" class="weakness-note">
                 <el-icon><Warning /></el-icon>
                 <span>薄弱知识点，建议重点练习</span>
               </div>
@@ -322,6 +322,7 @@ import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Odometer, Filter, Refresh, Download, Warning } from '@element-plus/icons-vue';
 import RadarChart from '../components/RadarChart.vue';
+import { teacherApi } from '../api/teacher';
 
 const router = useRouter();
 
@@ -342,76 +343,32 @@ const detailDialogVisible = ref(false);
 const studentDetail = ref<any>(null);
 
 // 统计数据
-const totalStudents = ref(45);
-const completedQuestions = ref(1284);
-const averageScore = ref(78);
-const activeStudents = ref(32);
+const totalStudents = ref(0);
+const completedQuestions = ref(0);
+const averageScore = ref(0);
+const activeStudents = ref(0);
 
 // 知识点数据
-const knowledgePoints = ref([
-  { id: 'basic', name: '图的基本概念' },
-  { id: 'euler', name: '欧拉图' },
-  { id: 'hamilton', name: '哈密顿图' },
-  { id: 'tree', name: '树' },
-  { id: 'planar', name: '平面图' },
-  { id: 'coloring', name: '着色' }
-]);
+const knowledgePoints = ref<any[]>([]);
 
 // 学生数据
-const students = ref([
-  {
-    id: '1120220001',
-    name: '张三',
-    class: '08012201',
-    scores: [85, 78, 92, 67, 89, 74],
-    totalQuestions: 45,
-    correctRate: 78,
-    lastActive: '2024-08-29 14:30'
-  },
-  {
-    id: '1120220002', 
-    name: '李四',
-    class: '08012201',
-    scores: [72, 85, 69, 78, 83, 76],
-    totalQuestions: 38,
-    correctRate: 82,
-    lastActive: '2024-08-29 13:45'
-  },
-  {
-    id: '1120220003',
-    name: '王五', 
-    class: '08012202',
-    scores: [90, 88, 85, 92, 87, 91],
-    totalQuestions: 52,
-    correctRate: 89,
-    lastActive: '2024-08-29 15:20'
-  },
-  {
-    id: '1120220004',
-    name: '赵六',
-    class: '08012202', 
-    scores: [65, 70, 75, 68, 71, 69],
-    totalQuestions: 35,
-    correctRate: 65,
-    lastActive: '2024-08-28 16:10'
-  },
-  {
-    id: '1120220005',
-    name: '钱七',
-    class: '08012201',
-    scores: [88, 85, 90, 83, 86, 84],
-    totalQuestions: 48,
-    correctRate: 85,
-    lastActive: '2024-08-29 12:30'
-  }
-]);
+const students = ref<any[]>([]);
+
+// 加载状态
+const loading = ref(false);
 
 // 计算属性
 const filteredStudents = computed(() => {
   let filtered = students.value;
   
-  // 这里可以根据筛选条件过滤数据
-  // 目前返回分页数据
+  // 根据筛选条件过滤数据
+  if (selectedKnowledge.value) {
+    filtered = filtered.filter(student => 
+      student.knowledge_scores.some((kp: any) => kp.knowledge_point_id === selectedKnowledge.value)
+    );
+  }
+  
+  // 返回分页数据
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
   return filtered.slice(start, end);
@@ -429,12 +386,31 @@ const applyFilters = () => {
   ElMessage.success('筛选条件已应用');
 };
 
-const refreshData = () => {
-  ElMessage.success('数据已刷新');
+const refreshData = async () => {
+  loading.value = true;
+  try {
+    await loadAllData();
+    ElMessage.success('数据已刷新');
+  } catch (error) {
+    ElMessage.error('数据刷新失败');
+  } finally {
+    loading.value = false;
+  }
 };
 
-const exportData = () => {
-  ElMessage.success('数据导出中...');
+const exportData = async () => {
+  try {
+    const blob = await teacherApi.exportStudentData('csv');
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'students_data.csv';
+    link.click();
+    window.URL.revokeObjectURL(url);
+    ElMessage.success('数据导出成功');
+  } catch (error) {
+    ElMessage.error('数据导出失败');
+  }
 };
 
 const viewStudentDetail = (student: any) => {
@@ -449,16 +425,13 @@ const getProgressColor = (score: number) => {
   return '#F56C6C';
 };
 
-const getLowestScores = (scores: number[]) => {
-  // 创建包含分数和对应知识点名称的数组
-  const scoreItems = scores.map((score, index) => ({
-    score,
-    name: knowledgePoints.value[index]?.name || `知识点${index + 1}`,
-    index
-  }));
+const getLowestScores = (knowledgeScores: any[]) => {
+  if (!knowledgeScores || knowledgeScores.length === 0) {
+    return [];
+  }
   
   // 按分数从低到高排序，取前两个
-  return scoreItems
+  return knowledgeScores
     .sort((a, b) => a.score - b.score)
     .slice(0, 2);
 };
@@ -485,19 +458,35 @@ const getScoreTagType = (score: number) => {
   return 'danger';
 };
 
+const getStudentKnowledgeScore = (student: any, knowledgePointId: string) => {
+  if (!student || !student.knowledge_scores) return 0;
+  const kp = student.knowledge_scores.find((kp: any) => kp.knowledge_point_id === knowledgePointId);
+  return kp ? kp.score : 0;
+};
+
 const handleDialogClose = () => {
   recommendDialogVisible.value = false;
   selectedStudent.value = null;
   selectedKnowledgePoints.value = [];
 };
 
-const confirmRecommendDirection = () => {
-  const knowledgeNames = selectedKnowledgePoints.value
-    .map(id => knowledgePoints.value.find(point => point.id === id)?.name)
-    .join('、');
-  
-  ElMessage.success(`已为学生 ${selectedStudent.value.name} 设置推荐方向：${knowledgeNames}，优先级：${recommendPriority.value}`);
-  handleDialogClose();
+const confirmRecommendDirection = async () => {
+  try {
+    await teacherApi.updateStudentRecommendation(
+      selectedStudent.value.id,
+      selectedKnowledgePoints.value,
+      recommendPriority.value
+    );
+    
+    const knowledgeNames = selectedKnowledgePoints.value
+      .map(id => knowledgePoints.value.find(point => point.id === id)?.name)
+      .join('、');
+    
+    ElMessage.success(`已为学生 ${selectedStudent.value.name} 设置推荐方向：${knowledgeNames}，优先级：${recommendPriority.value}`);
+    handleDialogClose();
+  } catch (error) {
+    ElMessage.error('更新推荐方向失败');
+  }
 };
 
 const logout = () => {
@@ -507,8 +496,48 @@ const logout = () => {
   router.push('/login');
 };
 
+// 数据加载方法
+const loadAllData = async () => {
+  try {
+    // 并行加载所有数据
+    const [statsData, studentsData, knowledgePointsData] = await Promise.all([
+      teacherApi.getOverallStats(),
+      teacherApi.getAllStudents(),
+      teacherApi.getKnowledgePoints()
+    ]);
+    
+    // 更新统计数据
+    const stats = statsData.data;
+    totalStudents.value = stats.total_students;
+    completedQuestions.value = stats.total_questions;
+    averageScore.value = stats.average_score;
+    activeStudents.value = stats.active_students;
+    
+    // 更新学生数据
+    students.value = studentsData.map(student => ({
+      ...student,
+      class: student.grade || '未知班级', // 使用grade字段作为班级
+      scores: student.knowledge_scores.map((kp: any) => kp.score) // 提取分数数组用于雷达图
+    }));
+    
+    // 更新知识点数据
+    knowledgePoints.value = knowledgePointsData;
+    
+    console.log('教师端数据加载完成:', {
+      stats: stats,
+      studentsCount: students.value.length,
+      knowledgePointsCount: knowledgePoints.value.length
+    });
+    
+  } catch (error) {
+    console.error('加载教师端数据失败:', error);
+    ElMessage.error('数据加载失败，请检查网络连接');
+  }
+};
+
 onMounted(() => {
   // 初始化数据
+  loadAllData();
 });
 </script>
 

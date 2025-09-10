@@ -490,3 +490,4 @@ class LearningProgressService:
         except Exception as e:
             logger.error(f"获取学习进度失败: {e}")
             return False, f"获取学习进度失败: {str(e)}", None
+

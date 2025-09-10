@@ -165,3 +165,4 @@ class LearningProgress(db.Model):
             'accuracy': self.accuracy,
             'study_time_minutes': self.study_time_minutes
         }
+
