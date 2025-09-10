@@ -10,6 +10,8 @@ import sys
 import time
 from typing import Dict, List, Optional
 from simple_system import KnowledgeGraphRecommendationEngine
+import csv
+import pandas as pd
 
 class EducationRecommendationAPI:
     """教育推荐系统API"""
@@ -25,7 +27,7 @@ class EducationRecommendationAPI:
             sys.exit(1)
         
         self.current_session = None
-    
+
     def start_session(self, student_id: str, initial_mastery: Optional[Dict[str, float]] = None) -> Dict:
         """开始学习会话"""
         print(f"\n👨‍🎓 开始学生 {student_id} 的学习会话...")
@@ -36,7 +38,8 @@ class EducationRecommendationAPI:
             print(f"✅ 学习会话开始成功！")
             print(f"📊 初始知识点掌握度:")
             for kp, score in result["initial_mastery"].items():
-                print(f"   {kp}: {score:.2f}")
+                kp_name = self.engine.recommender._get_node_name(kp)
+                print(f"   {kp_name}: {score:.2f}")
         else:
             print(f"❌ 学习会话开始失败: {result['message']}")
         
@@ -92,11 +95,13 @@ class EducationRecommendationAPI:
             
             print(f"📊 更新后的知识点掌握度:")
             for kp, score in result["current_mastery"].items():
-                print(f"   {kp}: {score:.3f}")
+                kp_name = self.engine.recommender._get_node_name(kp)
+                print(f"   {kp_name}: {score:.3f}")
             
             mastered = result["mastered_knowledge_points"]
+            mastered_names = [self.engine.recommender._get_node_name(kp) for kp in mastered]
             if mastered:
-                print(f"🏆 已掌握的知识点: {', '.join(mastered)}")
+                print(f"🏆 已掌握的知识点: {', '.join(mastered_names)}")
         else:
             print(f"❌ 答案提交失败: {result['message']}")
         
@@ -131,7 +136,8 @@ class EducationRecommendationAPI:
             if result["weak_knowledge_points"]:
                 print(f"\n🔴 薄弱知识点详情:")
                 for kp, score in result["weak_knowledge_points"]:
-                    print(f"   {kp}: {score:.3f}")
+                    kp_name = self.engine.recommender._get_node_name(kp)
+                    print(f"   {kp_name}: {score:.3f}")
             else:
                 print(f"\n🎉 暂无明显薄弱知识点！")
             
@@ -330,6 +336,18 @@ class EducationRecommendationAPI:
                 "message": f"加载文件失败: {str(e)}"
             }
 
+class NodeToName:
+    """节点ID到名称的映射工具"""
+
+    def __init__(self):
+        df = pd.read_csv("formatted_nodes.csv")
+        self.name_dict = pd.Series(df['id'].values, index=df['name']).to_dict()
+
+
+    def get_name(self, node_id: str) -> str:
+        """获取节点名称"""
+        return self.name_dict.get(node_id, node_id)
+
 def display_question(question: Dict, index: int) -> None:
     """显示题目"""
     print(f"\n{'='*60}")
@@ -338,8 +356,11 @@ def display_question(question: Dict, index: int) -> None:
     
     for i, option in enumerate(question['options']):
         print(f"{chr(65 + i)}. {option}")
-    
-    print(f"\n💡 涉及知识点: {', '.join(question['knowledge_points'].keys())}")
+
+    translator = NodeToName()
+    names = [translator.get_name(kp) for kp in question['knowledge_points'].keys()]
+
+    print(f"\n💡 涉及知识点: {', '.join(names)}")
     print(f"🎯 难度系数: {question.get('difficulty', 0.5):.2f}")
 
 def interactive_learning_session():

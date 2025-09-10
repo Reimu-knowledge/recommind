@@ -203,11 +203,13 @@ class StudentModel:
 class RecommendationSystem:
     """推荐系统类"""
     
-    def __init__(self, embeddings_path: str, knowledge_graph_path: str, question_bank_path: str):
+    def __init__(self, embeddings_path: str, knowledge_graph_path: str, question_bank_path: str, node_names_path: str):
         # 加载数据
         self.embeddings = self._load_embeddings(embeddings_path)
         self.knowledge_graph = self._load_knowledge_graph(knowledge_graph_path)
         self.questions = self._load_questions(question_bank_path)
+        self.node_names = self._load_node_names(node_names_path)
+        print(self.node_names)
         
         # 初始化关系向量
         self.relation_embeddings = self._initialize_relation_vectors()
@@ -231,6 +233,16 @@ class RecommendationSystem:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return data['questions']
+
+    def _load_node_names(self, path: str) -> Dict[str, str]:
+        """加载节点名称映射"""
+        df = pd.read_csv(path)
+        # print(df.head())  # 打印列名以确认
+        return pd.Series(df['id'].values, index=df['name']).to_dict()  # 修改为实际列名
+
+    def _get_node_name(self, kp_id: str) -> str:
+        """获取知识点名称"""
+        return self.node_names.get(kp_id, kp_id)
     
     def _initialize_relation_vectors(self) -> Dict[str, np.ndarray]:
         """初始化关系向量"""
@@ -413,16 +425,19 @@ class KnowledgeGraphRecommendationEngine:
         self.embeddings_path = "embeddings.csv"
         self.knowledge_graph_path = "knowledge_graph.csv" 
         self.question_bank_path = "question_bank.json"
+        self.node_names = "formatted_nodes.csv"
         
         # 加载配置
         if config_path:
+            print("加载配置文件:", config_path)
             self._load_config(config_path)
         
         # 初始化推荐系统
         self.recommender = RecommendationSystem(
             self.embeddings_path,
             self.knowledge_graph_path,
-            self.question_bank_path
+            self.question_bank_path,
+            self.node_names
         )
         
         # 存储学生模型
@@ -432,10 +447,14 @@ class KnowledgeGraphRecommendationEngine:
         """加载配置文件"""
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
+            print("读取配置文件内容")
         
-        self.embeddings_path = config.get('embeddings_path', self.embeddings_path)
-        self.knowledge_graph_path = config.get('knowledge_graph_path', self.knowledge_graph_path)
-        self.question_bank_path = config.get('question_bank_path', self.question_bank_path)
+            self.embeddings_path = config.get("paths", {}).get("embeddings_path", "无描述")
+            print("使用的embeddings_path:", self.embeddings_path)
+            self.knowledge_graph_path = config.get("paths", {}).get('knowledge_graph_path', "无描述")
+            print("使用的knowledge_graph_path:", self.knowledge_graph_path)
+            self.question_bank_path = config.get("paths", {}).get('question_bank_path', "无描述")
+            print("使用的question_bank_path:", self.question_bank_path)
     
     def create_student(self, student_id: str, initial_mastery: Optional[Dict[str, float]] = None) -> Dict:
         """创建新学生"""
@@ -577,12 +596,13 @@ class KnowledgeGraphRecommendationEngine:
         top_weak = weak_points[:3]
         
         for kp, score in top_weak:
+            kp_name = self.recommender._get_node_name(kp)
             if score < 0.1:
-                recommendations.append(f"🔴 {kp} 掌握度极低({score:.2f})，建议重点学习基础概念")
+                recommendations.append(f"🔴 {kp_name} 掌握度极低({score:.2f})，建议重点学习基础概念")
             elif score < 0.2:
-                recommendations.append(f"🟡 {kp} 掌握度较低({score:.2f})，需要加强练习")
+                recommendations.append(f"🟡 {kp_name} 掌握度较低({score:.2f})，需要加强练习")
             else:
-                recommendations.append(f"🟠 {kp} 掌握度一般({score:.2f})，可以适量练习巩固")
+                recommendations.append(f"🟠 {kp_name} 掌握度一般({score:.2f})，可以适量练习巩固")
         
         # 添加学习策略建议
         if len(weak_points) > 5:

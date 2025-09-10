@@ -5,9 +5,9 @@
     "description": "基于TransE嵌入的教育推荐系统（优化版）"
   },
   "paths": {
-    "embeddings_path": "embeddings.csv",
-    "knowledge_graph_path": "knowledge_graph.csv",
-    "question_bank_path": "question_bank.json"
+    "embeddings_path": "embeddings_formatted.csv",
+    "knowledge_graph_path": "formatted_kg.csv",
+    "question_bank_path": "question.json"
   },
   "model_config": {
     "embedding_dimension": 50,
