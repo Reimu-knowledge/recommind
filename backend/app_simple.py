@@ -230,6 +230,27 @@ def health_check():
         'timestamp': datetime.utcnow().isoformat()
     })
 
+@app.route('/api/knowledge-graph', methods=['GET'])
+def get_knowledge_graph_csv():
+    """返回知识图谱CSV内容（formatted_kg.csv）"""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), '..', 'recommend', 'formatted_kg.csv')
+        # 规范化路径
+        csv_path = os.path.abspath(csv_path)
+        if not os.path.exists(csv_path):
+            logger.error(f"知识图谱CSV不存在: {csv_path}")
+            return jsonify({'status': 'error', 'message': '知识图谱CSV不存在'}), 404
+
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 以纯文本返回，方便前端直接解析
+        from flask import Response
+        return Response(content, mimetype='text/plain; charset=utf-8')
+    except Exception as e:
+        logger.error(f"读取知识图谱CSV失败: {e}")
+        return jsonify({'status': 'error', 'message': f'读取知识图谱CSV失败: {str(e)}'}), 500
+
 # 学生管理接口
 @app.route('/api/students', methods=['POST'])
 def create_student():

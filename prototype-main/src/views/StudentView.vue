@@ -132,10 +132,11 @@
         <!-- 知识图谱内容 -->
         <div v-else-if="currentView === 'graph'" class="graph-content">
           <div class="questions-header">
-            <h3>知识图谱</h3>
+            <h3>交互式知识图谱</h3>
+            <p class="graph-hint">点击任意节点切换为中心节点，探索知识点之间的关联关系</p>
           </div>
           <div class="questions-container">
-            <LargeKnowledgeGraph />
+            <InteractiveKnowledgeGraph />
           </div>
         </div>
 
@@ -173,7 +174,7 @@ import { ElMessage } from 'element-plus';
 import { Refresh, TrendCharts, MagicStick, Warning, CircleCheck } from '@element-plus/icons-vue';
 import KnowledgeGraph from '../components/KnowledgeGraph.vue';
 import QuestionCard from '../components/QuestionCard.vue';
-import LargeKnowledgeGraph from '../components/LargeKnowledgeGraph.vue';
+import InteractiveKnowledgeGraph from '../components/InteractiveKnowledgeGraph.vue';
 import { studentApi } from '../api/student';
 import { auth } from '../utils/auth';
 
@@ -541,6 +542,13 @@ onMounted(() => {
   margin: 0;
   color: #2c3e50;
   font-size: 18px;
+}
+
+.graph-hint {
+  margin: 6px 0 0 0;
+  color: #6b7280;
+  font-size: 13px;
+  font-style: italic;
 }
 
 .filter-controls {
