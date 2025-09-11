@@ -650,6 +650,20 @@ class RecommendationSystem:
         else:
             strategy_scores['consolidation'] += 0.2
         
+        # 基于平均掌握度
+        if avg_mastery < 0.3:
+            # 平均掌握度很低，需要查漏补缺
+            strategy_scores['gap_filling'] += 0.25
+        elif avg_mastery < 0.5:
+            # 平均掌握度中等，需要巩固练习
+            strategy_scores['consolidation'] += 0.25
+        elif avg_mastery > 0.7:
+            # 平均掌握度较高，可以进行知识拓展
+            strategy_scores['expansion'] += 0.25
+        else:
+            # 平均掌握度中等偏上，平衡发展
+            strategy_scores['balanced'] += 0.15
+        
         # 基于知识连通性
         if len(connectivity['isolated_weak_points']) > 2:
             strategy_scores['gap_filling'] += 0.2
