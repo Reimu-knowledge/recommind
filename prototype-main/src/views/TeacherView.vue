@@ -111,15 +111,15 @@
               <template #default="scope">
                 <div class="score-summary">
                   <span 
-                    v-for="(item, index) in getLowestScores(scope.row.scores)" 
+                    v-for="(item, index) in getLowestScores(scope.row.knowledge_scores)" 
                     :key="index"
                     class="score-tag"
                     :class="{ 'weak': item.score < 70 }"
                   >
-                    {{ item.name }} {{ item.score }}%
+                    {{ item.knowledge_point_name }} {{ item.score }}%
                   </span>
-                  <span v-if="scope.row.scores.length > 2" class="more-indicator">
-                    +{{ scope.row.scores.length - 2 }}项
+                  <span v-if="scope.row.knowledge_scores && scope.row.knowledge_scores.length > 2" class="more-indicator">
+                    +{{ scope.row.knowledge_scores.length - 2 }}项
                   </span>
                 </div>
               </template>
