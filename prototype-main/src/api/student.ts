@@ -247,7 +247,7 @@ export const studentApi = {
         id: point.id, // 知识点ID
         name: point.name, // 知识点名称
         description: `${point.name}掌握程度较低，建议加强练习`,
-        score: Math.round((1 - point.score) * 100) // 转换为百分比分数
+        score: point.accuracy // 直接使用正确率（已经是百分比）
       }))
     } catch (error) {
       console.error('获取薄弱知识点失败:', error)

@@ -350,657 +350,71 @@ class RecommendationSystem:
         return basic_questions[:num_questions]
     
     def _vector_based_recommend(self, student: StudentModel, num_questions: int) -> List[Dict]:
-        """基于向量推理的智能推荐 - 增强版"""
-        # 分析学生学习状态
-        learning_state = self._analyze_student_learning_state(student)
-        
-        # 根据学习状态选择推荐策略
-        primary_strategy = self._determine_recommendation_strategy(learning_state)
-        
-        # 新增：动态混合策略
-        if student.batch_count > 3:  # 有足够历史数据时采用混合策略
-            return self._mixed_strategy_recommend(student, num_questions, learning_state, primary_strategy)
-        else:
-            # 执行单一策略
-            if primary_strategy == "consolidation":
-                return self._consolidation_recommend(student, num_questions, learning_state)
-            elif primary_strategy == "gap_filling":
-                return self._gap_filling_recommend(student, num_questions, learning_state)
-            elif primary_strategy == "expansion":
-                return self._expansion_recommend(student, num_questions, learning_state)
-            else:  # balanced
-                return self._balanced_recommend(student, num_questions, learning_state)
-    
-    def _mixed_strategy_recommend(self, student: StudentModel, num_questions: int, 
-                                learning_state: Dict, primary_strategy: str) -> List[Dict]:
-        """混合策略推荐：结合多种策略的优势"""
-        recommendations = []
-        
-        # 计算各策略的题目分配比例
-        if primary_strategy == "gap_filling":
-            strategy_ratios = {"gap_filling": 0.6, "consolidation": 0.3, "balanced": 0.1}
-        elif primary_strategy == "expansion":
-            strategy_ratios = {"expansion": 0.6, "consolidation": 0.2, "balanced": 0.2}
-        elif primary_strategy == "consolidation":
-            strategy_ratios = {"consolidation": 0.5, "gap_filling": 0.3, "expansion": 0.2}
-        else:  # balanced
-            strategy_ratios = {"balanced": 0.4, "consolidation": 0.3, "gap_filling": 0.2, "expansion": 0.1}
-        
-        # 按比例分配题目数量
-        remaining_questions = num_questions
-        strategy_allocations = {}
-        
-        for strategy, ratio in strategy_ratios.items():
-            allocated = max(1, round(num_questions * ratio)) if remaining_questions > 0 else 0
-            allocated = min(allocated, remaining_questions)
-            strategy_allocations[strategy] = allocated
-            remaining_questions -= allocated
-        
-        # 分配剩余题目给主策略
-        if remaining_questions > 0:
-            strategy_allocations[primary_strategy] = strategy_allocations.get(primary_strategy, 0) + remaining_questions
-        
-        # 执行各策略并合并结果
-        all_candidates = []
-        
-        for strategy, count in strategy_allocations.items():
-            if count > 0:
-                if strategy == "gap_filling":
-                    strategy_recommendations = self._gap_filling_recommend(student, count, learning_state)
-                elif strategy == "expansion":
-                    strategy_recommendations = self._expansion_recommend(student, count, learning_state)
-                elif strategy == "consolidation":
-                    strategy_recommendations = self._consolidation_recommend(student, count, learning_state)
-                else:  # balanced
-                    strategy_recommendations = self._balanced_recommend(student, count, learning_state)
-                
-                # 为每个推荐题目添加策略来源标记
-                for rec in strategy_recommendations:
-                    rec['strategy_source'] = strategy
-                    rec['is_mixed_strategy'] = True
-                
-                all_candidates.extend(strategy_recommendations)
-        
-        # 去重（避免不同策略推荐相同题目）
-        seen_qids = set()
-        final_recommendations = []
-        
-        for rec in all_candidates:
-            if rec['qid'] not in seen_qids:
-                seen_qids.add(rec['qid'])
-                final_recommendations.append(rec)
-        
-        # 如果去重后题目不够，用平衡策略补充
-        while len(final_recommendations) < num_questions:
-            additional = self._balanced_recommend(student, num_questions - len(final_recommendations), learning_state)
-            for rec in additional:
-                if rec['qid'] not in seen_qids:
-                    rec['strategy_source'] = 'supplement'
-                    rec['is_mixed_strategy'] = True
-                    final_recommendations.append(rec)
-                    seen_qids.add(rec['qid'])
-                    break
-            else:
-                break  # 没有更多可用题目
-        
-        return final_recommendations[:num_questions]
-    
-    def _analyze_student_learning_state(self, student: StudentModel) -> Dict:
-        """分析学生学习状态 - 增强版"""
-        mastery_scores = student.mastery_scores
-        weak_points = student.get_weak_knowledge_points(threshold=0.3)
-        mastered_points = student.get_mastered_knowledge_points(threshold=0.5)
-        moderate_points = [(kp, score) for kp, score in mastery_scores.items() 
-                          if 0.3 <= score < 0.5]
-        
-        # 计算学习进展指标
-        total_kps = len(mastery_scores)
-        avg_mastery = sum(mastery_scores.values()) / total_kps if total_kps > 0 else 0
-        mastery_variance = np.var(list(mastery_scores.values())) if mastery_scores else 0
-        
-        # 分析最近答题表现（最近5题）
-        recent_questions = student.question_history[-5:] if len(student.question_history) >= 5 else student.question_history
-        recent_accuracy = sum(1 for q in recent_questions if q.get('correct', False)) / len(recent_questions) if recent_questions else 0
-        
-        # 新增：计算学习趋势
-        learning_trend = self._calculate_learning_trend(student)
-        
-        # 新增：计算当前学习能力水平
-        current_ability_level = self._estimate_ability_level(student)
-        
-        # 新增：分析知识点关联性
-        knowledge_connectivity = self._analyze_knowledge_connectivity(mastered_points, weak_points)
-        
-        return {
-            'weak_points': weak_points,
-            'mastered_points': mastered_points,
-            'moderate_points': moderate_points,
-            'avg_mastery': avg_mastery,
-            'mastery_variance': mastery_variance,
-            'recent_accuracy': recent_accuracy,
-            'total_questions': len(student.question_history),
-            'batch_count': student.batch_count,
-            'learning_trend': learning_trend,
-            'ability_level': current_ability_level,
-            'knowledge_connectivity': knowledge_connectivity
-        }
-    
-    def _calculate_learning_trend(self, student: StudentModel) -> Dict:
-        """计算学习趋势"""
-        if len(student.vector_history) < 2:
-            return {'trend': 'insufficient_data', 'momentum': 0.0}
-        
-        # 计算向量变化趋势
-        recent_vectors = student.vector_history[-3:] if len(student.vector_history) >= 3 else student.vector_history
-        
-        # 计算学习动量（向量变化幅度）
-        momentum = 0.0
-        if len(recent_vectors) >= 2:
-            for i in range(1, len(recent_vectors)):
-                momentum += np.linalg.norm(recent_vectors[i] - recent_vectors[i-1])
-            momentum /= (len(recent_vectors) - 1)
-        
-        # 计算掌握度变化趋势
-        if len(student.question_history) >= 6:
-            first_half = student.question_history[:len(student.question_history)//2]
-            second_half = student.question_history[len(student.question_history)//2:]
-            
-            first_accuracy = sum(1 for q in first_half if q.get('correct', False)) / len(first_half)
-            second_accuracy = sum(1 for q in second_half if q.get('correct', False)) / len(second_half)
-            
-            if second_accuracy > first_accuracy + 0.1:
-                trend = 'improving'
-            elif second_accuracy < first_accuracy - 0.1:
-                trend = 'declining'
-            else:
-                trend = 'stable'
-        else:
-            trend = 'insufficient_data'
-        
-        return {'trend': trend, 'momentum': momentum}
-    
-    def _estimate_ability_level(self, student: StudentModel) -> str:
-        """估算学生当前能力水平"""
-        avg_mastery = sum(student.mastery_scores.values()) / len(student.mastery_scores) if student.mastery_scores else 0
-        recent_accuracy = 0
-        
-        if len(student.question_history) >= 3:
-            recent_questions = student.question_history[-5:]
-            recent_accuracy = sum(1 for q in recent_questions if q.get('correct', False)) / len(recent_questions)
-        
-        # 综合掌握度和准确率判断能力水平
-        combined_score = (avg_mastery + recent_accuracy) / 2
-        
-        if combined_score >= 0.8:
-            return 'advanced'
-        elif combined_score >= 0.6:
-            return 'intermediate'
-        elif combined_score >= 0.4:
-            return 'beginner'
-        else:
-            return 'struggling'
-    
-    def _analyze_knowledge_connectivity(self, mastered_points: List[str], weak_points: List[Tuple[str, float]]) -> Dict:
-        """分析知识点连通性"""
-        connectivity_info = {
-            'isolated_weak_points': [],
-            'connected_weak_points': [],
-            'expansion_candidates': []
-        }
-        
-        # 分析薄弱知识点的连通性
-        for weak_kp, score in weak_points:
-            has_connection = False
-            for mastered_kp in mastered_points:
-                if weak_kp in self.embeddings and mastered_kp in self.embeddings:
-                    similarity = cosine_similarity([self.embeddings[weak_kp]], 
-                                                 [self.embeddings[mastered_kp]])[0][0]
-                    if similarity > 0.3:
-                        has_connection = True
-                        break
-            
-            if has_connection:
-                connectivity_info['connected_weak_points'].append(weak_kp)
-            else:
-                connectivity_info['isolated_weak_points'].append(weak_kp)
-        
-        # 寻找拓展候选
-        for mastered_kp in mastered_points:
-            if mastered_kp in self.embeddings:
-                for kp_id, embedding in self.embeddings.items():
-                    if kp_id not in mastered_points and kp_id not in [wp[0] for wp in weak_points]:
-                        similarity = cosine_similarity([self.embeddings[mastered_kp]], [embedding])[0][0]
-                        if similarity > 0.4:
-                            connectivity_info['expansion_candidates'].append((kp_id, similarity))
-        
-        # 按相似度排序拓展候选
-        connectivity_info['expansion_candidates'].sort(key=lambda x: x[1], reverse=True)
-        connectivity_info['expansion_candidates'] = connectivity_info['expansion_candidates'][:5]
-        
-        return connectivity_info
-    
-    def _determine_recommendation_strategy(self, learning_state: Dict) -> str:
-        """根据学习状态确定推荐策略 - 智能化决策"""
-        weak_count = len(learning_state['weak_points'])
-        mastered_count = len(learning_state['mastered_points'])
-        moderate_count = len(learning_state['moderate_points'])
-        recent_accuracy = learning_state['recent_accuracy']
-        avg_mastery = learning_state['avg_mastery']
-        learning_trend = learning_state['learning_trend']
-        ability_level = learning_state['ability_level']
-        connectivity = learning_state['knowledge_connectivity']
-        
-        # 计算总知识点数
-        total_kps = weak_count + mastered_count + moderate_count
-        if total_kps == 0:
-            return "balanced"  # 安全回退
-        
-        # 计算相对比例
-        weak_ratio = weak_count / total_kps
-        mastered_ratio = mastered_count / total_kps
-        moderate_ratio = moderate_count / total_kps
-        
-        # 策略权重计算
-        strategy_scores = {
-            'gap_filling': 0.0,
-            'consolidation': 0.0,
-            'expansion': 0.0,
-            'balanced': 0.2  # 基础权重
-        }
-        
-        # 基于薄弱知识点比例
-        if weak_ratio > 0.4:
-            strategy_scores['gap_filling'] += 0.4
-        elif weak_ratio > 0.2:
-            strategy_scores['gap_filling'] += 0.2
-        
-        # 基于掌握知识点比例
-        if mastered_ratio > 0.6:
-            strategy_scores['expansion'] += 0.4
-        elif mastered_ratio > 0.4:
-            strategy_scores['expansion'] += 0.2
-        
-        # 基于中等掌握度比例
-        if moderate_ratio > 0.4:
-            strategy_scores['consolidation'] += 0.4
-        elif moderate_ratio > 0.2:
-            strategy_scores['consolidation'] += 0.2
-        
-        # 基于最近表现
-        if recent_accuracy < 0.4:
-            strategy_scores['gap_filling'] += 0.3
-        elif recent_accuracy > 0.8:
-            strategy_scores['expansion'] += 0.3
-        else:
-            strategy_scores['consolidation'] += 0.2
-        
-        # 基于学习趋势
-        if learning_trend['trend'] == 'declining':
-            strategy_scores['gap_filling'] += 0.2
-            strategy_scores['consolidation'] += 0.1
-        elif learning_trend['trend'] == 'improving':
-            strategy_scores['expansion'] += 0.2
-            strategy_scores['consolidation'] += 0.1
-        
-        # 基于能力水平
-        if ability_level == 'struggling':
-            strategy_scores['gap_filling'] += 0.3
-        elif ability_level == 'advanced':
-            strategy_scores['expansion'] += 0.3
-        else:
-            strategy_scores['consolidation'] += 0.2
-        
-        # 基于知识连通性
-        if len(connectivity['isolated_weak_points']) > 2:
-            strategy_scores['gap_filling'] += 0.2
-        if len(connectivity['expansion_candidates']) > 3:
-            strategy_scores['expansion'] += 0.2
-        if len(connectivity['connected_weak_points']) > 1:
-            strategy_scores['consolidation'] += 0.1
-        
-        # 选择得分最高的策略
-        best_strategy = max(strategy_scores.items(), key=lambda x: x[1])[0]
-        
-        return best_strategy
-    
-    def _consolidation_recommend(self, student: StudentModel, num_questions: int, learning_state: Dict) -> List[Dict]:
-        """巩固练习推荐：针对中等掌握度的知识点"""
-        moderate_points = learning_state['moderate_points']
-        mastered_points = learning_state['mastered_points']
-        
-        # 选择目标知识点（中等掌握度 + 部分已掌握）
-        target_kps = [kp for kp, _ in moderate_points[:3]]  # 前3个中等掌握度知识点
-        if mastered_points:
-            target_kps.extend(mastered_points[:2])  # 加入2个已掌握知识点进行巩固
-        
-        return self._recommend_by_target_kps(student, target_kps, num_questions, 
-                                           strategy_name="consolidation")
-    
-    def _gap_filling_recommend(self, student: StudentModel, num_questions: int, learning_state: Dict) -> List[Dict]:
-        """查漏补缺推荐：针对薄弱知识点"""
-        weak_points = learning_state['weak_points']
-        mastered_points = learning_state['mastered_points']
-        
-        # 优先选择最薄弱的知识点，但要考虑与已掌握知识点的关联性
-        target_kps = []
-        
-        # 选择与已掌握知识点相关的薄弱知识点
-        if mastered_points and weak_points:
-            related_weak_kps = self._find_related_weak_points(weak_points, mastered_points)
-            target_kps.extend(related_weak_kps[:2])
-        
-        # 如果没有足够的相关薄弱知识点，直接选择最薄弱的
-        if len(target_kps) < 2:
-            remaining_weak = [kp for kp, _ in weak_points if kp not in target_kps]
-            target_kps.extend(remaining_weak[:3-len(target_kps)])
-        
-        return self._recommend_by_target_kps(student, target_kps, num_questions,
-                                           strategy_name="gap_filling")
-    
-    def _expansion_recommend(self, student: StudentModel, num_questions: int, learning_state: Dict) -> List[Dict]:
-        """知识拓展推荐：基于已掌握知识点拓展新知识 - 增强版"""
-        mastered_points = learning_state['mastered_points']
-        connectivity = learning_state['knowledge_connectivity']
-        
-        if not mastered_points:
-            return self._balanced_recommend(student, num_questions, learning_state)
-        
-        target_kps = []
-        
-        # 策略1: 利用连通性分析的拓展候选
-        expansion_candidates = connectivity.get('expansion_candidates', [])
-        if expansion_candidates:
-            # 选择前3个最相似的候选
-            target_kps.extend([kp for kp, _ in expansion_candidates[:3]])
-        
-        # 策略2: 基于向量推理的传统方法（作为补充）
-        if len(target_kps) < 3:
-            vector_based_candidates = []
-            
-            # 从多个已掌握知识点出发进行拓展
-            top_mastered = sorted(mastered_points, 
-                                key=lambda kp: student.get_mastery_level(kp), 
-                                reverse=True)[:3]
-            
-            for mastered_kp in top_mastered:
-                # 使用多种关系向量进行探索
-                for relation_type in ["prerequisite", "similarity", "advanced"]:
-                    relation_vector = self._get_enhanced_relation_vector(relation_type)
-                    V_mastered = self.embeddings[mastered_kp]
-                    V_target = V_mastered + relation_vector
-                    
-                    # 寻找未掌握的相关知识点
-                    for kp_id, kp_embedding in self.embeddings.items():
-                        if student.get_mastery_level(kp_id) < 0.5:
-                            similarity = cosine_similarity([V_target], [kp_embedding])[0][0]
-                            if similarity > 0.3:
-                                vector_based_candidates.append((kp_id, similarity, mastered_kp, relation_type))
-            
-            # 去重并排序
-            unique_vector_candidates = {}
-            for kp_id, score, source_kp, relation_type in vector_based_candidates:
-                if kp_id not in unique_vector_candidates or unique_vector_candidates[kp_id][0] < score:
-                    unique_vector_candidates[kp_id] = (score, source_kp, relation_type)
-            
-            vector_sorted = sorted(unique_vector_candidates.keys(), 
-                              key=lambda kp: unique_vector_candidates[kp][0], 
-                              reverse=True)
-            
-            # 补充到目标知识点列表
-            remaining_slots = 3 - len(target_kps)
-            target_kps.extend([kp for kp in vector_sorted[:remaining_slots] if kp not in target_kps])
-        
-        return self._recommend_by_target_kps(student, target_kps, num_questions,
-                                           strategy_name="expansion")
-    
-    def _get_enhanced_relation_vector(self, relation_type: str) -> np.ndarray:
-        """获取增强的关系向量"""
-        if relation_type == "prerequisite":
-            # 先修关系：较保守的探索
-            base_mean, base_std = 0.08, 0.12
-        elif relation_type == "similarity":
-            # 相似关系：中等探索
-            base_mean, base_std = 0.12, 0.15
-        elif relation_type == "advanced":
-            # 进阶关系：较激进的探索
-            base_mean, base_std = 0.18, 0.25
-        else:
-            base_mean, base_std = 0.12, 0.15
-        
-        # 添加随机性
-        random_factor = np.random.uniform(0.85, 1.15)
-        dynamic_mean = base_mean * random_factor
-        dynamic_std = base_std * random_factor
-        
-        # 生成关系向量
-        relation_vector = np.random.normal(dynamic_mean, dynamic_std, 50)
-        return relation_vector / np.linalg.norm(relation_vector)
-    
-    def _balanced_recommend(self, student: StudentModel, num_questions: int, learning_state: Dict) -> List[Dict]:
-        """平衡推荐：综合考虑各种知识点"""
-        weak_points = learning_state['weak_points']
-        moderate_points = learning_state['moderate_points']
-        mastered_points = learning_state['mastered_points']
-        
-        # 平衡选择不同层次的知识点
-        target_kps = []
-        
-        # 1个薄弱知识点（如果有）
-        if weak_points:
-            target_kps.append(weak_points[0][0])
-        
-        # 1-2个中等掌握度知识点
-        if moderate_points:
-            target_kps.extend([kp for kp, _ in moderate_points[:2]])
-        
-        # 1个已掌握知识点用于拓展
-        if mastered_points and len(target_kps) < 3:
-            target_kps.append(mastered_points[0])
-        
-        return self._recommend_by_target_kps(student, target_kps, num_questions,
-                                           strategy_name="balanced")
-    
-    def _find_related_weak_points(self, weak_points: List[Tuple[str, float]], 
-                                mastered_points: List[str]) -> List[str]:
-        """找到与已掌握知识点相关的薄弱知识点"""
-        related_weak = []
-        
-        for weak_kp, _ in weak_points:
-            max_similarity = 0
-            for mastered_kp in mastered_points:
-                if weak_kp in self.embeddings and mastered_kp in self.embeddings:
-                    similarity = cosine_similarity([self.embeddings[weak_kp]], 
-                                                 [self.embeddings[mastered_kp]])[0][0]
-                    max_similarity = max(max_similarity, similarity)
-            
-            if max_similarity > 0.3:  # 相似度阈值
-                related_weak.append(weak_kp)
-        
-        return related_weak
-    
-    def _get_dynamic_relation_vector(self, strategy: str) -> np.ndarray:
-        """获取动态关系向量，增加随机性"""
-        # 根据策略调整基础参数
-        if strategy == "gap_filling":
-            base_mean, base_std = 0.05, 0.1  # 更保守的向量
-        elif strategy == "expansion":
-            base_mean, base_std = 0.15, 0.2  # 更激进的向量
-        else:
-            base_mean, base_std = 0.1, 0.15  # 默认参数
-        
-        # 添加随机抖动
-        random_factor = np.random.uniform(0.8, 1.2)  # 随机因子
-        dynamic_mean = base_mean * random_factor
-        dynamic_std = base_std * random_factor
-        
-        # 生成动态关系向量
-        relation_vector = np.random.normal(dynamic_mean, dynamic_std, 50)
-        return relation_vector / np.linalg.norm(relation_vector)
-    
-    def _recommend_by_target_kps(self, student: StudentModel, target_kps: List[str], 
-                               num_questions: int, strategy_name: str = "") -> List[Dict]:
-        """根据目标知识点推荐题目 - 增强版"""
-        if not target_kps:
-            return []
-        
+        """基于向量推理的推荐"""
+        mastered_kps = student.get_mastered_knowledge_points(threshold=0.1)
+        best_mastered = max(mastered_kps, key=lambda kp: student.get_mastery_level(kp))
+        
+        # 向量推理
+        V_mastered = self.embeddings[best_mastered]
+        V_target = V_mastered + self.relation_embeddings["is_prerequisite_for"]
+        
+        # 找到候选知识点
+        candidates = []
+        for kp_id, kp_embedding in self.embeddings.items():
+            if student.get_mastery_level(kp_id) < 0.5:
+                similarity = cosine_similarity([V_target], [kp_embedding])[0][0]
+                candidates.append((kp_id, similarity))
+        
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        # 收集候选题目
         candidate_questions = []
         attempted = [ans['qid'] for ans in student.question_history]
+        target_question_count = 8
         
-        # 获取学生能力水平
-        ability_level = self._estimate_ability_level(student)
-        
-        # 为每个目标知识点收集候选题目
-        for target_kp in target_kps:
-            kp_questions = []
+        for kp_id, kp_similarity in candidates:
+            if len(candidate_questions) >= target_question_count:
+                break
+            
             for q in self.questions:
+                if len(candidate_questions) >= target_question_count:
+                    break
+                
                 if q['qid'] in attempted:
                     continue
                 
-                if target_kp in q['knowledge_points']:
-                    # 计算题目与目标知识点的关联度
-                    kp_weight = q['knowledge_points'].get(target_kp, 0)
-                    
-                    # 计算与学生已掌握知识点的关联度
-                    mastered_kps = student.get_mastered_knowledge_points(threshold=0.3)
-                    mastered_overlap = sum(q['knowledge_points'].get(kp, 0) 
-                                         for kp in mastered_kps) / len(mastered_kps) if mastered_kps else 0
-                    
-                    # 估算题目难度
-                    difficulty_score = self._estimate_question_difficulty(q, student)
-                    
-                    # 计算难度适配度
-                    difficulty_match = self._calculate_difficulty_match(difficulty_score, ability_level, strategy_name)
-                    
-                    kp_questions.append({
-                        'question': q,
-                        'target_kp': target_kp,
-                        'kp_weight': kp_weight,
-                        'mastered_overlap': mastered_overlap,
-                        'difficulty_score': difficulty_score,
-                        'difficulty_match': difficulty_match
-                    })
-            
-            # 为每个知识点最多选择3道题
-            kp_questions.sort(key=lambda x: (x['kp_weight'], x['difficulty_match'], x['mastered_overlap']), reverse=True)
-            candidate_questions.extend(kp_questions[:3])
+                if kp_id in q['knowledge_points']:
+                    if not any(cq['question']['qid'] == q['qid'] for cq in candidate_questions):
+                        candidate_questions.append({
+                            'question': q,
+                            'target_kp': kp_id,
+                            'kp_similarity': kp_similarity
+                        })
         
         # 综合评分
         scored_questions = []
         for cq in candidate_questions:
             question = cq['question']
             target_kp = cq['target_kp']
-            kp_weight = cq['kp_weight']
-            mastered_overlap = cq['mastered_overlap']
-            difficulty_match = cq['difficulty_match']
+            kp_similarity = cq['kp_similarity']
             
-            # 计算各项得分
-            coverage_score = kp_weight
-            relevance_score = mastered_overlap
+            coverage_score = question['knowledge_points'].get(target_kp, 0)
+            relevance_score = kp_similarity
+            difficulty_score = 1 - abs(question.get('difficulty', 0.5) - 0.6)
             diversity_score = len(question['knowledge_points']) * 0.1
-            adaptability_score = difficulty_match
-            
-            # 策略相关的权重调整 (加入难度适配维度)
-            if strategy_name == "gap_filling":
-                weights = [0.5, 0.2, 0.1, 0.2]  # 重视覆盖度和适配度
-            elif strategy_name == "expansion":
-                weights = [0.3, 0.2, 0.3, 0.2]  # 平衡各项指标
-            elif strategy_name == "consolidation":
-                weights = [0.4, 0.3, 0.1, 0.2]  # 重视关联性和适配度
-            else:  # 平衡推荐
-                weights = [0.4, 0.25, 0.15, 0.2]
             
             final_score = (
-                weights[0] * coverage_score +
-                weights[1] * relevance_score +
-                weights[2] * diversity_score +
-                weights[3] * adaptability_score
+                0.4 * coverage_score +
+                0.3 * relevance_score +
+                0.2 * difficulty_score +
+                0.1 * diversity_score
             )
             
-            # 添加小量随机因子避免推荐过于固定
-            random_factor = np.random.uniform(0.95, 1.05)
-            final_score *= random_factor
-            
-            scored_questions.append((question, final_score, strategy_name))
+            scored_questions.append((question, final_score))
         
         # 排序并返回前N个
         scored_questions.sort(key=lambda x: x[1], reverse=True)
-        
-        # 确保不超过请求数量
-        final_questions = []
-        for q, score, strategy in scored_questions[:num_questions]:
-            # 记录推荐策略信息
-            q_copy = q.copy()
-            q_copy['recommendation_strategy'] = strategy
-            q_copy['recommendation_score'] = score
-            final_questions.append(q_copy)
-        
-        return final_questions
-    
-    def _estimate_question_difficulty(self, question: Dict, student: StudentModel) -> float:
-        """估算题目难度"""
-        # 基于知识点掌握度估算难度
-        total_difficulty = 0.0
-        total_weight = 0.0
-        
-        for kp_id, weight in question['knowledge_points'].items():
-            mastery_level = student.get_mastery_level(kp_id)
-            # 掌握度越低，题目对学生来说越难
-            kp_difficulty = 1.0 - mastery_level
-            total_difficulty += kp_difficulty * weight
-            total_weight += weight
-        
-        if total_weight > 0:
-            avg_difficulty = total_difficulty / total_weight
-        else:
-            avg_difficulty = 0.5  # 默认中等难度
-        
-        # 基于知识点数量调整难度（知识点越多通常越复杂）
-        complexity_factor = min(len(question['knowledge_points']) / 3.0, 1.0)
-        
-        final_difficulty = (avg_difficulty + complexity_factor * 0.2)
-        return min(final_difficulty, 1.0)
-    
-    def _calculate_difficulty_match(self, difficulty_score: float, ability_level: str, strategy_name: str) -> float:
-        """计算难度适配度"""
-        # 定义各能力水平的最佳难度范围
-        optimal_difficulty_ranges = {
-            'struggling': (0.2, 0.4),
-            'beginner': (0.3, 0.5),
-            'intermediate': (0.4, 0.7),
-            'advanced': (0.6, 0.9)
-        }
-        
-        # 根据策略调整难度偏好
-        if strategy_name == "gap_filling":
-            # 查漏补缺时倾向于较低难度
-            adjustment = -0.1
-        elif strategy_name == "expansion":
-            # 知识拓展时倾向于较高难度
-            adjustment = 0.1
-        else:
-            adjustment = 0.0
-        
-        # 获取最佳难度范围
-        min_difficulty, max_difficulty = optimal_difficulty_ranges.get(ability_level, (0.4, 0.7))
-        min_difficulty = max(0.0, min_difficulty + adjustment)
-        max_difficulty = min(1.0, max_difficulty + adjustment)
-        
-        # 计算适配度
-        if min_difficulty <= difficulty_score <= max_difficulty:
-            # 在最佳范围内，越接近中心点越好
-            center = (min_difficulty + max_difficulty) / 2
-            distance_from_center = abs(difficulty_score - center)
-            max_distance = (max_difficulty - min_difficulty) / 2
-            match_score = 1.0 - (distance_from_center / max_distance) if max_distance > 0 else 1.0
-        else:
-            # 超出最佳范围，根据距离计算惩罚
-            if difficulty_score < min_difficulty:
-                distance = min_difficulty - difficulty_score
-            else:
-                distance = difficulty_score - max_difficulty
-            match_score = max(0.0, 1.0 - distance * 2)  # 距离越远，适配度越低
-        
-        return match_score
+        return [q for q, _ in scored_questions[:num_questions]]
 
 class KnowledgeGraphRecommendationEngine:
     """知识图谱推荐引擎 - 主要接口类"""

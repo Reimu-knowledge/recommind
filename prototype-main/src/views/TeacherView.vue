@@ -118,7 +118,7 @@
                   >
                     {{ item.knowledge_point_name }} {{ item.score }}%
                   </span>
-                  <span v-if="scope.row.knowledge_scores && scope.row.knowledge_scores.length > 2" class="more-indicator">
+                  <span v-if="scope.row.knowledge_scores.length > 2" class="more-indicator">
                     +{{ scope.row.knowledge_scores.length - 2 }}项
                   </span>
                 </div>

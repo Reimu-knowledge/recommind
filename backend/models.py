@@ -166,3 +166,5 @@ class LearningProgress(db.Model):
             'study_time_minutes': self.study_time_minutes
         }
 
+
+

@@ -4,7 +4,7 @@
 基于Flask框架，集成学生数据库存储和推荐功能
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from datetime import datetime, date
@@ -229,27 +229,6 @@ def health_check():
         'questions_count': len(questions_data) if questions_data else 0,
         'timestamp': datetime.utcnow().isoformat()
     })
-
-@app.route('/api/knowledge-graph', methods=['GET'])
-def get_knowledge_graph_csv():
-    """返回知识图谱CSV内容（formatted_kg.csv）"""
-    try:
-        csv_path = os.path.join(os.path.dirname(__file__), '..', 'recommend', 'formatted_kg.csv')
-        # 规范化路径
-        csv_path = os.path.abspath(csv_path)
-        if not os.path.exists(csv_path):
-            logger.error(f"知识图谱CSV不存在: {csv_path}")
-            return jsonify({'status': 'error', 'message': '知识图谱CSV不存在'}), 404
-
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        # 以纯文本返回，方便前端直接解析
-        from flask import Response
-        return Response(content, mimetype='text/plain; charset=utf-8')
-    except Exception as e:
-        logger.error(f"读取知识图谱CSV失败: {e}")
-        return jsonify({'status': 'error', 'message': f'读取知识图谱CSV失败: {str(e)}'}), 500
 
 # 学生管理接口
 @app.route('/api/students', methods=['POST'])
@@ -581,32 +560,98 @@ def get_knowledge_mastery(student_id):
 
 @app.route('/api/students/<student_id>/weak-points', methods=['GET'])
 def get_weak_points(student_id):
-    """获取学生薄弱知识点分析"""
-    if not recommendation_api:
+    """获取学生薄弱知识点分析 - 基于真实答题记录"""
+    try:
+        # 确保学生存在
+        student = Student.query.filter_by(id=student_id).first()
+        if not student:
+            return jsonify({
+                'status': 'error',
+                'message': f'学生 {student_id} 不存在'
+            }), 404
+        
+        threshold = request.args.get('threshold', 0.3, type=float)
+        
+        # 获取学生的所有答题记录
+        answer_records = AnswerRecord.query.filter_by(student_id=student_id).all()
+        
+        # 统计每个知识点的答题情况
+        knowledge_point_stats = {}
+        
+        for record in answer_records:
+            # 解析知识点信息
+            try:
+                knowledge_points = json.loads(record.knowledge_points)
+            except:
+                continue
+            
+            # 为每个知识点统计答题情况
+            for kp_id in knowledge_points:
+                if kp_id not in knowledge_point_stats:
+                    knowledge_point_stats[kp_id] = {
+                        'total_attempts': 0,
+                        'correct_attempts': 0,
+                        'wrong_attempts': 0,
+                        'accuracy': 0.0
+                    }
+                
+                stats = knowledge_point_stats[kp_id]
+                stats['total_attempts'] += 1
+                
+                if record.is_correct:
+                    stats['correct_attempts'] += 1
+                else:
+                    stats['wrong_attempts'] += 1
+                
+                # 计算正确率
+                stats['accuracy'] = stats['correct_attempts'] / stats['total_attempts'] if stats['total_attempts'] > 0 else 0
+        
+        # 找出薄弱知识点（正确率低于阈值且有答题记录）
+        weak_points = []
+        for kp_id, stats in knowledge_point_stats.items():
+            if stats['accuracy'] < threshold and stats['total_attempts'] > 0:
+                kp_name = knowledge_points_mapping.get(kp_id, kp_id)
+                weak_points.append({
+                    'id': kp_id,
+                    'name': kp_name,
+                    'total_attempts': stats['total_attempts'],
+                    'correct_attempts': stats['correct_attempts'],
+                    'wrong_attempts': stats['wrong_attempts'],
+                    'accuracy': round(stats['accuracy'] * 100, 1),  # 转换为百分比
+                    'score': round(stats['accuracy'], 3)  # 保持小数形式用于排序
+                })
+        
+        # 按正确率从低到高排序（最薄弱的在前）
+        weak_points.sort(key=lambda x: x['score'])
+        
+        # 计算总体统计
+        total_questions = len(answer_records)
+        total_correct = sum(1 for record in answer_records if record.is_correct)
+        overall_accuracy = total_correct / total_questions if total_questions > 0 else 0
+        
+        result = {
+            'status': 'success',
+            'student_id': student_id,
+            'weak_knowledge_points': weak_points,
+            'total_weak_points': len(weak_points),
+            'threshold': threshold,
+            'overall_stats': {
+                'total_questions': total_questions,
+                'total_correct': total_correct,
+                'overall_accuracy': round(overall_accuracy * 100, 1)
+            }
+        }
+        
+        logger.info(f"学生 {student_id} 薄弱知识点分析完成，发现 {len(weak_points)} 个薄弱点")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"获取学生薄弱知识点失败: {e}")
         return jsonify({
             'status': 'error',
-            'message': '推荐系统未初始化'
+            'message': f'获取薄弱知识点失败: {str(e)}'
         }), 500
-    
-    threshold = request.args.get('threshold', 0.3, type=float)
-    
-    result = recommendation_api.get_weak_points(threshold)
-    
-    if result['status'] == 'error':
-        return jsonify(result), 400
-    
-    # 转换薄弱知识点格式，添加知识点名称
-    weak_points_with_names = []
-    for kp_id, score in result.get('weak_knowledge_points', []):
-        kp_name = knowledge_points_mapping.get(kp_id, kp_id)  # 如果没有找到映射，使用原ID
-        weak_points_with_names.append({
-            'id': kp_id,
-            'name': kp_name,
-            'score': score
-        })
-    
-    result['weak_knowledge_points'] = weak_points_with_names
-    return jsonify(result)
 
 @app.route('/api/questions/by-knowledge-point/<knowledge_point_id>', methods=['GET'])
 def get_questions_by_knowledge_point(knowledge_point_id):
@@ -815,17 +860,40 @@ def get_teacher_all_students():
             correct_answers = AnswerRecord.query.filter_by(student_id=student.id, is_correct=True).count()
             total_sessions = LearningSession.query.filter_by(student_id=student.id).count()
             
-            # 获取知识点掌握情况
-            mastery_records = KnowledgeMastery.query.filter_by(student_id=student.id).all()
+            # 获取知识点掌握情况 - 基于真实答题记录
+            answer_records = AnswerRecord.query.filter_by(student_id=student.id).all()
+            knowledge_point_stats = {}
+            
+            # 统计每个知识点的答题情况
+            for record in answer_records:
+                try:
+                    knowledge_points = json.loads(record.knowledge_points)
+                except:
+                    continue
+                
+                for kp_id in knowledge_points:
+                    if kp_id not in knowledge_point_stats:
+                        knowledge_point_stats[kp_id] = {
+                            'total_attempts': 0,
+                            'correct_attempts': 0
+                        }
+                    
+                    stats = knowledge_point_stats[kp_id]
+                    stats['total_attempts'] += 1
+                    if record.is_correct:
+                        stats['correct_attempts'] += 1
+            
+            # 构建知识点得分数据
             knowledge_scores = []
-            for record in mastery_records:
-                kp_name = knowledge_points_mapping.get(record.knowledge_point_id, record.knowledge_point_id)
+            for kp_id, stats in knowledge_point_stats.items():
+                kp_name = knowledge_points_mapping.get(kp_id, kp_id)
+                accuracy = stats['correct_attempts'] / stats['total_attempts'] if stats['total_attempts'] > 0 else 0
                 knowledge_scores.append({
-                    'knowledge_point_id': record.knowledge_point_id,
+                    'knowledge_point_id': kp_id,
                     'knowledge_point_name': kp_name,
-                    'score': int(record.mastery_score * 100),  # 转换为百分比
-                    'practice_count': record.practice_count,
-                    'correct_count': record.correct_count
+                    'score': int(accuracy * 100),  # 转换为百分比
+                    'practice_count': stats['total_attempts'],
+                    'correct_count': stats['correct_attempts']
                 })
             
             # 按知识点ID排序
@@ -875,19 +943,42 @@ def get_teacher_student_detail(student_id):
         correct_answers = AnswerRecord.query.filter_by(student_id=student_id, is_correct=True).count()
         total_sessions = LearningSession.query.filter_by(student_id=student_id).count()
         
-        # 获取知识点掌握详情
-        mastery_records = KnowledgeMastery.query.filter_by(student_id=student_id).all()
+        # 获取知识点掌握详情 - 基于真实答题记录
+        answer_records = AnswerRecord.query.filter_by(student_id=student_id).all()
+        knowledge_point_stats = {}
+        
+        # 统计每个知识点的答题情况
+        for record in answer_records:
+            try:
+                knowledge_points = json.loads(record.knowledge_points)
+            except:
+                continue
+            
+            for kp_id in knowledge_points:
+                if kp_id not in knowledge_point_stats:
+                    knowledge_point_stats[kp_id] = {
+                        'total_attempts': 0,
+                        'correct_attempts': 0
+                    }
+                
+                stats = knowledge_point_stats[kp_id]
+                stats['total_attempts'] += 1
+                if record.is_correct:
+                    stats['correct_attempts'] += 1
+        
+        # 构建知识点得分数据
         knowledge_scores = []
-        for record in mastery_records:
-            kp_name = knowledge_points_mapping.get(record.knowledge_point_id, record.knowledge_point_id)
+        for kp_id, stats in knowledge_point_stats.items():
+            kp_name = knowledge_points_mapping.get(kp_id, kp_id)
+            accuracy = stats['correct_attempts'] / stats['total_attempts'] if stats['total_attempts'] > 0 else 0
             knowledge_scores.append({
-                'knowledge_point_id': record.knowledge_point_id,
+                'knowledge_point_id': kp_id,
                 'knowledge_point_name': kp_name,
-                'score': int(record.mastery_score * 100),
-                'practice_count': record.practice_count,
-                'correct_count': record.correct_count,
-                'accuracy': int((record.correct_count / record.practice_count * 100) if record.practice_count > 0 else 0),
-                'last_updated': record.last_updated.isoformat()
+                'score': int(accuracy * 100),
+                'practice_count': stats['total_attempts'],
+                'correct_count': stats['correct_attempts'],
+                'accuracy': int(accuracy * 100),
+                'last_updated': datetime.utcnow().isoformat()  # 使用当前时间
             })
         
         # 按知识点ID排序
@@ -1009,18 +1100,40 @@ def get_teacher_all_students_mastery():
         
         students_mastery = []
         for student in students:
-            # 获取知识点掌握情况
-            mastery_records = KnowledgeMastery.query.filter_by(student_id=student.id).all()
+            # 获取知识点掌握情况 - 基于真实答题记录
+            answer_records = AnswerRecord.query.filter_by(student_id=student.id).all()
+            knowledge_point_stats = {}
             
+            # 统计每个知识点的答题情况
+            for record in answer_records:
+                try:
+                    knowledge_points = json.loads(record.knowledge_points)
+                except:
+                    continue
+                
+                for kp_id in knowledge_points:
+                    if kp_id not in knowledge_point_stats:
+                        knowledge_point_stats[kp_id] = {
+                            'total_attempts': 0,
+                            'correct_attempts': 0
+                        }
+                    
+                    stats = knowledge_point_stats[kp_id]
+                    stats['total_attempts'] += 1
+                    if record.is_correct:
+                        stats['correct_attempts'] += 1
+            
+            # 构建知识点得分数据
             knowledge_scores = []
-            for record in mastery_records:
-                kp_name = knowledge_points_mapping.get(record.knowledge_point_id, record.knowledge_point_id)
+            for kp_id, stats in knowledge_point_stats.items():
+                kp_name = knowledge_points_mapping.get(kp_id, kp_id)
+                accuracy = stats['correct_attempts'] / stats['total_attempts'] if stats['total_attempts'] > 0 else 0
                 knowledge_scores.append({
-                    'knowledge_point_id': record.knowledge_point_id,
+                    'knowledge_point_id': kp_id,
                     'knowledge_point_name': kp_name,
-                    'score': int(record.mastery_score * 100),
-                    'practice_count': record.practice_count,
-                    'correct_count': record.correct_count
+                    'score': int(accuracy * 100),
+                    'practice_count': stats['total_attempts'],
+                    'correct_count': stats['correct_attempts']
                 })
             
             # 按知识点ID排序
@@ -1051,45 +1164,97 @@ def get_teacher_all_students_mastery():
 
 @app.route('/api/teacher/knowledge-points/stats', methods=['GET'])
 def get_teacher_knowledge_point_stats():
-    """教师端：获取知识点总体掌握情况"""
+    """教师端：获取知识点总体掌握情况 - 基于真实答题记录"""
     try:
         knowledge_point_stats = []
         
-        for kp_id, kp_name in knowledge_points_mapping.items():
-            # 获取该知识点的所有掌握记录
-            mastery_records = KnowledgeMastery.query.filter_by(knowledge_point_id=kp_id).all()
-            
-            if not mastery_records:
+        # 获取所有答题记录
+        all_answer_records = AnswerRecord.query.all()
+        
+        # 统计每个知识点的答题情况
+        kp_stats = {}
+        
+        for record in all_answer_records:
+            try:
+                knowledge_points = json.loads(record.knowledge_points)
+            except:
                 continue
             
-            # 计算统计信息
-            total_students = len(mastery_records)
-            scores = [record.mastery_score * 100 for record in mastery_records]  # 转换为百分比
-            average_score = int(sum(scores) / len(scores)) if scores else 0
-            mastered_students = len([score for score in scores if score >= 70])
-            weak_students = len([score for score in scores if score < 70])
+            for kp_id in knowledge_points:
+                if kp_id not in kp_stats:
+                    kp_stats[kp_id] = {
+                        'total_attempts': 0,
+                        'correct_attempts': 0,
+                        'wrong_attempts': 0,
+                        'students': set(),
+                        'student_stats': {}  # 每个学生在该知识点的表现
+                    }
+                
+                stats = kp_stats[kp_id]
+                stats['total_attempts'] += 1
+                stats['students'].add(record.student_id)
+                
+                # 统计每个学生的表现
+                if record.student_id not in stats['student_stats']:
+                    stats['student_stats'][record.student_id] = {
+                        'total': 0,
+                        'correct': 0
+                    }
+                
+                student_stat = stats['student_stats'][record.student_id]
+                student_stat['total'] += 1
+                
+                if record.is_correct:
+                    stats['correct_attempts'] += 1
+                    student_stat['correct'] += 1
+                else:
+                    stats['wrong_attempts'] += 1
+        
+        # 计算每个知识点的统计信息
+        for kp_id, stats in kp_stats.items():
+            if stats['total_attempts'] == 0:
+                continue
+                
+            kp_name = knowledge_points_mapping.get(kp_id, kp_id)
             
-            # 计算练习统计
-            total_practice = sum(record.practice_count for record in mastery_records)
-            total_correct = sum(record.correct_count for record in mastery_records)
-            overall_accuracy = int((total_correct / total_practice * 100) if total_practice > 0 else 0)
+            # 计算总体正确率
+            overall_accuracy = stats['correct_attempts'] / stats['total_attempts'] if stats['total_attempts'] > 0 else 0
+            
+            # 计算每个学生的掌握情况
+            student_mastery_scores = []
+            mastered_students = 0
+            weak_students = 0
+            
+            for student_id, student_stat in stats['student_stats'].items():
+                if student_stat['total'] > 0:
+                    student_accuracy = student_stat['correct'] / student_stat['total']
+                    student_mastery_scores.append(student_accuracy * 100)  # 转换为百分比
+                    
+                    if student_accuracy >= 0.7:  # 70%以上认为掌握
+                        mastered_students += 1
+                    else:
+                        weak_students += 1
+            
+            # 计算平均掌握率
+            average_mastery = sum(student_mastery_scores) / len(student_mastery_scores) if student_mastery_scores else 0
             
             kp_stat = {
                 'knowledge_point_id': kp_id,
                 'knowledge_point_name': kp_name,
-                'total_students': total_students,
-                'average_score': average_score,
+                'total_students': len(stats['students']),
+                'total_attempts': stats['total_attempts'],
+                'correct_attempts': stats['correct_attempts'],
+                'wrong_attempts': stats['wrong_attempts'],
+                'overall_accuracy': round(overall_accuracy * 100, 1),
+                'average_mastery': round(average_mastery, 1),
                 'mastered_students': mastered_students,
                 'weak_students': weak_students,
-                'mastery_rate': int((mastered_students / total_students * 100) if total_students > 0 else 0),
-                'total_practice': total_practice,
-                'total_correct': total_correct,
-                'overall_accuracy': overall_accuracy
+                'mastery_rate': round((mastered_students / len(stats['students']) * 100) if len(stats['students']) > 0 else 0, 1)
             }
             knowledge_point_stats.append(kp_stat)
         
-        # 按平均分排序
-        knowledge_point_stats.sort(key=lambda x: x['average_score'], reverse=True)
+        # 按平均掌握率排序（从高到低）
+        knowledge_point_stats.sort(key=lambda x: x['average_mastery'], reverse=True)
         
         return jsonify({
             'status': 'success',
@@ -1275,6 +1440,52 @@ def init_database():
     with app.app_context():
         db.create_all()
         logger.info("数据库初始化完成")
+
+@app.route('/api/knowledge-graph', methods=['GET'])
+def get_knowledge_graph():
+    """获取知识图谱数据"""
+    try:
+        # 读取知识图谱CSV文件
+        csv_file_path = os.path.join(os.path.dirname(__file__), '..', 'recommend', 'formatted_kg.csv')
+        
+        if not os.path.exists(csv_file_path):
+            # 如果文件不存在，返回默认数据
+            default_csv = """4图论,k0,includes,ch14图的基本概念,k1
+4图论,k0,includes,ch15欧拉图&哈密顿图,k2
+4图论,k0,includes,ch16树,k3
+4图论,k0,includes,ch17平面图,k4
+4图论,k0,includes,ch18着色,k5
+ch14图的基本概念,k1,includes,14.1图,k6
+ch14图的基本概念,k1,includes,14.2通路与回路,k7
+ch14图的基本概念,k1,includes,14.3图的连通性,k8
+ch14图的基本概念,k1,includes,14.4图的矩阵表示,k9
+ch14图的基本概念,k1,includes,14.5图的运算,k10
+14.1图,k6,includes,图的定义,k11
+14.1图,k6,includes,多重图与简单图,k12
+14.1图,k6,includes,顶点的度数,k13
+14.1图,k6,includes,图的同构(必要条件),k14
+14.1图,k6,includes,n阶完全图（竞赛图）、k-正则图,k15
+14.1图,k6,includes,子图,k16
+14.1图,k6,includes,补图,k17"""
+            
+            response = make_response(default_csv)
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            return response
+        
+        # 读取CSV文件内容
+        with open(csv_file_path, 'r', encoding='utf-8') as f:
+            csv_content = f.read()
+        
+        response = make_response(csv_content)
+        response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+        return response
+        
+    except Exception as e:
+        logger.error(f"获取知识图谱数据失败: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取知识图谱数据失败: {str(e)}'
+        }), 500
 
 if __name__ == '__main__':
     # 初始化数据库

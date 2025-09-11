@@ -1,134 +1,169 @@
 <template>
-  <div class="knowledge-graph-container">
-    <div id="knowledge-graph" class="graph-content"></div>
+  <div class="knowledge-graph-mini">
+    <div class="mini-graph-container">
+      <svg :width="width" :height="height" class="mini-graph-svg">
+        <g>
+          <!-- 绘制连线 -->
+          <line
+            v-for="link in miniGraphData.links"
+            :key="`${link.source}-${link.target}`"
+            :x1="getNodePosition(link.source).x"
+            :y1="getNodePosition(link.source).y"
+            :x2="getNodePosition(link.target).x"
+            :y2="getNodePosition(link.target).y"
+            stroke="#999"
+            stroke-opacity="0.6"
+            stroke-width="1"
+          />
+          
+          <!-- 绘制节点 -->
+          <circle
+            v-for="node in miniGraphData.nodes"
+            :key="node.id"
+            :cx="getNodePosition(node.id).x"
+            :cy="getNodePosition(node.id).y"
+            :r="node.isCenter ? 12 : 8"
+            :fill="node.color"
+            :stroke="node.isCenter ? '#fff' : 'none'"
+            :stroke-width="node.isCenter ? 2 : 0"
+            class="mini-node"
+            :class="{ 'center-node': node.isCenter }"
+          />
+          
+          <!-- 绘制节点标签 -->
+          <text
+            v-for="node in miniGraphData.nodes"
+            :key="`label-${node.id}`"
+            :x="getNodePosition(node.id).x"
+            :y="getNodePosition(node.id).y + 2"
+            text-anchor="middle"
+            font-size="10px"
+            fill="white"
+            font-weight="bold"
+            class="mini-label"
+          >
+            {{ truncateLabel(node.name, 4) }}
+          </text>
+        </g>
+      </svg>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import * as d3 from 'd3';
+import { ref, onMounted } from 'vue';
+import { 
+  loadKnowledgeGraphData, 
+  buildCenteredSubgraph,
+  type KnowledgeNode,
+  type KnowledgeLink,
+  type GraphData
+} from '../utils/knowledgeGraphLoader';
 
-// 模拟知识图谱数据
-const graphData = {
-  nodes: [
-    { id: 'discrete', name: '离散数学', level: 0, color: '#FF6B6B', isCenter: true },
-    { id: 'sets', name: '集合论', level: 1, color: '#409EFF' },
-    { id: 'logic', name: '数理逻辑', level: 1, color: '#67C23A' },
-    { id: 'graph', name: '图论', level: 1, color: '#E6A23C' },
-    { id: 'algebra', name: '代数系统', level: 1, color: '#8E44AD' }
-  ],
-  links: [
-    { source: 'discrete', target: 'sets' },
-    { source: 'discrete', target: 'logic' },
-    { source: 'discrete', target: 'graph' },
-    { source: 'discrete', target: 'algebra' }
-  ]
-};
+// 组件尺寸
+const width = 280;
+const height = 160;
 
-onMounted(() => {
-  initGraph();
+// 响应式数据
+const allNodes = ref<Map<string, KnowledgeNode>>(new Map());
+const allLinks = ref<KnowledgeLink[]>([]);
+const miniGraphData = ref<GraphData>({ nodes: [], links: [] });
+
+onMounted(async () => {
+  await initializeData();
+  // 默认以根节点"4图论"作为中心
+  setCenter('k0');
 });
 
-const initGraph = () => {
-  const container = d3.select('#knowledge-graph');
-  const width = 600;
-  const height = 400;
+// 初始化数据
+const initializeData = async () => {
+  try {
+    const { nodes, links } = await loadKnowledgeGraphData();
+    allNodes.value = nodes;
+    allLinks.value = links;
+  } catch (error) {
+    console.error('初始化知识图谱数据失败:', error);
+  }
+};
+
+// 设置中心节点并更新图形
+const setCenter = (centerId: string) => {
+  const centerNode = allNodes.value.get(centerId);
+  if (!centerNode) return;
+
+  // 使用工具函数构建以该节点为中心的子图
+  const subgraph = buildCenteredSubgraph(centerId, allNodes.value, allLinks.value);
   
-  const svg = container
-    .append('svg')
-    .attr('width', width)
-    .attr('height', height)
-    .attr('viewBox', [0, 0, width, height]);
+  miniGraphData.value = subgraph;
+};
 
-  // 创建力导向图
-  const simulation = d3.forceSimulation(graphData.nodes)
-    .force('link', d3.forceLink(graphData.links).id((d: any) => d.id).distance(80))
-    .force('charge', d3.forceManyBody().strength(-300))
-    .force('center', d3.forceCenter(width / 2, height / 2));
-
-  // 绘制连线
-  const link = svg.append('g')
-    .selectAll('line')
-    .data(graphData.links)
-    .join('line')
-    .attr('stroke', '#999')
-    .attr('stroke-opacity', 0.6)
-    .attr('stroke-width', 2);
-
-  // 绘制节点
-  const node = svg.append('g')
-    .selectAll('g')
-    .data(graphData.nodes)
-    .join('g')
-    .call(d3.drag()
-      .on('start', dragstarted)
-      .on('drag', dragged)
-      .on('end', dragended));
-
-  // 节点圆圈
-  node.append('circle')
-    .attr('r', (d: any) => d.isCenter ? 35 : 25)
-    .attr('fill', (d: any) => d.color)
-    .attr('stroke', '#fff')
-    .attr('stroke-width', 2)
-    .style('cursor', 'pointer');
-
-  // 节点文字
-  node.append('text')
-    .text((d: any) => d.name)
-    .attr('text-anchor', 'middle')
-    .attr('dy', '0.35em')
-    .attr('font-size', '12px')
-    .attr('fill', 'white')
-    .style('pointer-events', 'none');
-
-  simulation.on('tick', () => {
-    link
-      .attr('x1', (d: any) => d.source.x)
-      .attr('y1', (d: any) => d.source.y)
-      .attr('x2', (d: any) => d.target.x)
-      .attr('y2', (d: any) => d.target.y);
-
-    node
-      .attr('transform', (d: any) => `translate(${d.x},${d.y})`);
-  });
-
-  function dragstarted(event: any) {
-    if (!event.active) simulation.alphaTarget(0.3).restart();
-    event.subject.fx = event.subject.x;
-    event.subject.fy = event.subject.y;
+// 获取节点位置（简单的圆形布局）
+const getNodePosition = (nodeId: string) => {
+  const nodeIndex = miniGraphData.value.nodes.findIndex(n => n.id === nodeId);
+  if (nodeIndex === -1) return { x: 0, y: 0 };
+  
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.min(width, height) / 2.5;
+  
+  if (nodeIndex === 0) {
+    // 中心节点
+    return { x: centerX, y: centerY };
+  } else {
+    // 周围节点
+    const angle = (2 * Math.PI * (nodeIndex - 1)) / (miniGraphData.value.nodes.length - 1);
+    return {
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle)
+    };
   }
+};
 
-  function dragged(event: any) {
-    event.subject.fx = event.x;
-    event.subject.fy = event.y;
-  }
-
-  function dragended(event: any) {
-    if (!event.active) simulation.alphaTarget(0);
-    event.subject.fx = null;
-    event.subject.fy = null;
-  }
+// 截断标签
+const truncateLabel = (name: string, limit: number = 3): string => {
+  if (!name) return '';
+  return name.length > limit ? name.slice(0, limit) + '...' : name;
 };
 </script>
 
 <style scoped>
-.knowledge-graph-container {
+.knowledge-graph-mini {
+  width: 100%;
   height: 100%;
   display: flex;
-  flex-direction: column;
-}
-
-.graph-content {
-  flex: 1;
-  display: flex;
-  justify-content: center;
   align-items: center;
-  background: #fff;
+  justify-content: center;
 }
 
-#knowledge-graph svg {
+.mini-graph-container {
+  width: 280px;
+  height: 160px;
+  background: #f8f9fa;
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.mini-graph-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mini-node {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mini-node:hover {
+  stroke-width: 2px !important;
+  filter: brightness(1.2);
+}
+
+.center-node {
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.mini-label {
+  pointer-events: none;
+  user-select: none;
 }
 </style>

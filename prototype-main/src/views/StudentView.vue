@@ -35,7 +35,7 @@
         </el-card>
 
         <!-- 薄弱知识点导航 -->
-        <el-card class="weak-points-card clickable-card" :class="{ active: currentView === 'weak' }" shadow="never">
+        <el-card class="weak-points-card clickable-card" :class="{ active: currentView === 'weak' }" shadow="never" @click="currentView = 'weak'">
           <template #header>
             <div class="nav-header">
               <el-icon><Warning /></el-icon>
@@ -48,7 +48,7 @@
               v-for="point in weakKnowledgePoints" 
               :key="point.id"
               class="weak-point-item"
-              @click="selectWeakPoint(point)"
+              @click.stop="selectWeakPoint(point)"
             >
               <div class="weak-point-info">
                 <h4>{{ point.name }}</h4>
@@ -74,17 +74,18 @@
         </el-card>
 
         <!-- 知识图谱 -->
-        <el-card class="graph-card clickable-card" :class="{ active: currentView === 'graph' }" shadow="never">
+        <el-card class="graph-card clickable-card" :class="{ active: currentView === 'graph' }" shadow="never" @click="currentView = 'graph'">
           <template #header>
             <div class="nav-header">
               <el-icon><TrendCharts /></el-icon>
               <span>知识图谱</span>
             </div>
           </template>
-          <div @click="currentView = 'graph'">
+          <div class="mini-graph-container">
             <KnowledgeGraph />
           </div>
         </el-card>
+
       </el-aside>
 
       <!-- 右侧内容区 -->
@@ -173,8 +174,8 @@ import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Refresh, TrendCharts, MagicStick, Warning, CircleCheck } from '@element-plus/icons-vue';
 import KnowledgeGraph from '../components/KnowledgeGraph.vue';
-import QuestionCard from '../components/QuestionCard.vue';
 import InteractiveKnowledgeGraph from '../components/InteractiveKnowledgeGraph.vue';
+import QuestionCard from '../components/QuestionCard.vue';
 import { studentApi } from '../api/student';
 import { auth } from '../utils/auth';
 
@@ -544,13 +545,6 @@ onMounted(() => {
   font-size: 18px;
 }
 
-.graph-hint {
-  margin: 6px 0 0 0;
-  color: #6b7280;
-  font-size: 13px;
-  font-style: italic;
-}
-
 .filter-controls {
   display: flex;
   gap: 12px;
@@ -580,5 +574,31 @@ onMounted(() => {
 
 .questions-container::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
+}
+
+/* 知识图谱相关样式 */
+.graph-card {
+  margin-top: 16px;
+}
+
+.mini-graph-container {
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.graph-content {
+  height: 100%;
+}
+
+.graph-hint {
+  color: #6c757d;
+  font-size: 14px;
+  margin: 8px 0 0 0;
+  font-style: italic;
 }
 </style>
