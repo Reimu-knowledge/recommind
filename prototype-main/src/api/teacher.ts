@@ -103,19 +103,6 @@ export const teacherApi = {
     }
   },
 
-  // 更新学生推荐方向
-  async updateStudentRecommendation(studentId: string, knowledgePoints: string[], priority: string): Promise<any> {
-    try {
-      const response = await api.post(`/api/teacher/students/${studentId}/recommendation`, {
-        knowledge_points: knowledgePoints,
-        priority: priority
-      });
-      return response.data;
-    } catch (error) {
-      console.error('更新学生推荐方向失败:', error);
-      throw error;
-    }
-  },
 
   // 获取学生答题记录
   async getStudentAnswerRecords(studentId: string): Promise<any[]> {

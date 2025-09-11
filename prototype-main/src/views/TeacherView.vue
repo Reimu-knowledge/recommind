@@ -135,14 +135,11 @@
             </el-table-column>
             <el-table-column prop="last_active" label="最后活跃" width="150" />
             
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column label="操作" width="100" fixed="right">
               <template #default="scope">
                 <div class="action-buttons">
                   <el-button size="small" @click="viewStudentDetail(scope.row)">
                     查看详情
-                  </el-button>
-                  <el-button size="small" type="primary" @click="changeRecommendDirection(scope.row)">
-                    更改推荐方向
                   </el-button>
                 </div>
               </template>
@@ -163,85 +160,6 @@
       </el-main>
     </el-container>
 
-    <!-- 推荐方向选择对话框 -->
-    <el-dialog
-      v-model="recommendDialogVisible"
-      title="更改推荐方向"
-      width="600px"
-      :before-close="handleDialogClose"
-    >
-      <div class="recommend-dialog-content">
-        <div class="student-info">
-          <h4>学生信息</h4>
-          <p><strong>姓名：</strong>{{ selectedStudent?.name }}</p>
-          <p><strong>学号：</strong>{{ selectedStudent?.id }}</p>
-          <p><strong>班级：</strong>{{ selectedStudent?.class }}</p>
-        </div>
-        
-        <el-divider />
-        
-        <div class="knowledge-selection">
-          <h4>选择推荐的知识点方向</h4>
-          <p class="selection-hint">请根据学生的学习情况选择需要加强的知识点：</p>
-          
-          <div class="knowledge-grid">
-            <div 
-              v-for="(point, index) in knowledgePoints" 
-              :key="point.id"
-              class="knowledge-option"
-              :class="{ 
-                'selected': selectedKnowledgePoints.includes(point.id),
-                'weak-point': selectedStudent && getStudentKnowledgeScore(selectedStudent, point.id) < 70
-              }"
-              @click="toggleKnowledgePoint(point.id)"
-            >
-              <div class="option-header">
-                <el-checkbox 
-                  :model-value="selectedKnowledgePoints.includes(point.id)"
-                  @change="toggleKnowledgePoint(point.id)"
-                />
-                <span class="knowledge-name">{{ point.name }}</span>
-              </div>
-              <div class="current-score" v-if="selectedStudent">
-                <span>当前得分：</span>
-                <el-tag 
-                  :type="getScoreTagType(getStudentKnowledgeScore(selectedStudent, point.id))"
-                  size="small"
-                >
-                  {{ getStudentKnowledgeScore(selectedStudent, point.id) }}分
-                </el-tag>
-              </div>
-              <div class="weak-indicator" v-if="selectedStudent && getStudentKnowledgeScore(selectedStudent, point.id) < 70">
-                <el-icon color="#F56C6C"><Warning /></el-icon>
-                <span>薄弱知识点</span>
-              </div>
-            </div>
-          </div>
-          
-          <div class="priority-setting" v-if="selectedKnowledgePoints.length > 0">
-            <h5>设置推荐优先级</h5>
-            <el-radio-group v-model="recommendPriority">
-              <el-radio value="high">高优先级 - 优先推荐相关题目</el-radio>
-              <el-radio value="medium">中优先级 - 适量推荐相关题目</el-radio>
-              <el-radio value="low">低优先级 - 少量推荐相关题目</el-radio>
-            </el-radio-group>
-          </div>
-        </div>
-      </div>
-      
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="handleDialogClose">取消</el-button>
-          <el-button 
-            type="primary" 
-            @click="confirmRecommendDirection"
-            :disabled="selectedKnowledgePoints.length === 0"
-          >
-            确定更改
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
 
     <!-- 学生详情对话框 -->
     <el-dialog 
@@ -332,11 +250,6 @@ const selectedChapter = ref('');
 const currentPage = ref(1);
 const pageSize = ref(20);
 
-// 推荐方向对话框相关数据
-const recommendDialogVisible = ref(false);
-const selectedStudent = ref<any>(null);
-const selectedKnowledgePoints = ref<string[]>([]);
-const recommendPriority = ref('medium');
 
 // 学生详情对话框相关数据
 const detailDialogVisible = ref(false);
@@ -436,21 +349,7 @@ const getLowestScores = (knowledgeScores: any[]) => {
     .slice(0, 2);
 };
 
-const changeRecommendDirection = (student: any) => {
-  selectedStudent.value = student;
-  selectedKnowledgePoints.value = [];
-  recommendPriority.value = 'medium';
-  recommendDialogVisible.value = true;
-};
 
-const toggleKnowledgePoint = (pointId: string) => {
-  const index = selectedKnowledgePoints.value.indexOf(pointId);
-  if (index > -1) {
-    selectedKnowledgePoints.value.splice(index, 1);
-  } else {
-    selectedKnowledgePoints.value.push(pointId);
-  }
-};
 
 const getScoreTagType = (score: number) => {
   if (score >= 80) return 'success';
@@ -458,36 +357,8 @@ const getScoreTagType = (score: number) => {
   return 'danger';
 };
 
-const getStudentKnowledgeScore = (student: any, knowledgePointId: string) => {
-  if (!student || !student.knowledge_scores) return 0;
-  const kp = student.knowledge_scores.find((kp: any) => kp.knowledge_point_id === knowledgePointId);
-  return kp ? kp.score : 0;
-};
 
-const handleDialogClose = () => {
-  recommendDialogVisible.value = false;
-  selectedStudent.value = null;
-  selectedKnowledgePoints.value = [];
-};
 
-const confirmRecommendDirection = async () => {
-  try {
-    await teacherApi.updateStudentRecommendation(
-      selectedStudent.value.id,
-      selectedKnowledgePoints.value,
-      recommendPriority.value
-    );
-    
-    const knowledgeNames = selectedKnowledgePoints.value
-      .map(id => knowledgePoints.value.find(point => point.id === id)?.name)
-      .join('、');
-    
-    ElMessage.success(`已为学生 ${selectedStudent.value.name} 设置推荐方向：${knowledgeNames}，优先级：${recommendPriority.value}`);
-    handleDialogClose();
-  } catch (error) {
-    ElMessage.error('更新推荐方向失败');
-  }
-};
 
 const logout = () => {
   localStorage.removeItem('userToken');
@@ -686,124 +557,6 @@ onMounted(() => {
   margin-top: 20px;
 }
 
-/* 推荐方向对话框样式 */
-.recommend-dialog-content {
-  padding: 20px 0;
-}
-
-.student-info {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
-.student-info h4 {
-  margin: 0 0 12px 0;
-  color: #2c3e50;
-  font-size: 16px;
-}
-
-.student-info p {
-  margin: 8px 0;
-  color: #495057;
-}
-
-.knowledge-selection h4 {
-  margin: 0 0 12px 0;
-  color: #2c3e50;
-  font-size: 16px;
-}
-
-.selection-hint {
-  color: #6c757d;
-  margin-bottom: 20px;
-  font-size: 14px;
-}
-
-.knowledge-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.knowledge-option {
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  padding: 16px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  background: #fff;
-}
-
-.knowledge-option:hover {
-  border-color: #409EFF;
-  background: #f0f9ff;
-}
-
-.knowledge-option.selected {
-  border-color: #409EFF;
-  background: #e3f2fd;
-}
-
-.knowledge-option.weak-point {
-  border-color: #F56C6C;
-  background: #fef2f2;
-}
-
-.knowledge-option.weak-point.selected {
-  border-color: #F56C6C;
-  background: #fee2e2;
-}
-
-.option-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.knowledge-name {
-  font-weight: 600;
-  color: #2c3e50;
-}
-
-.current-score {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #6c757d;
-}
-
-.weak-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #F56C6C;
-}
-
-.priority-setting {
-  margin-top: 24px;
-  padding: 16px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.priority-setting h5 {
-  margin: 0 0 12px 0;
-  color: #2c3e50;
-  font-size: 14px;
-}
-
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
 
 .action-buttons {
   display: flex;
