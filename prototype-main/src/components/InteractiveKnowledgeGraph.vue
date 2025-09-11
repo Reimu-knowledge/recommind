@@ -83,8 +83,8 @@ const renderGraph = () => {
   d3.select('#interactive-graph').selectAll('*').remove();
 
   const container = d3.select('#interactive-graph');
-  const width = 800;
-  const height = 600;
+  const width = 1200;  // 增加画布宽度
+  const height = 800;   // 增加画布高度
   
   const svg = container
     .append('svg')
@@ -96,18 +96,36 @@ const renderGraph = () => {
 
   // 创建力导向图（为兼容TS类型，进行显式any断言）
   simulation = d3.forceSimulation<any>(currentGraphData.nodes as any)
-    .force('link', d3.forceLink<any, any>(currentGraphData.links as any).id((d: any) => d.id).distance(120) as any)
-    .force('charge', d3.forceManyBody().strength(-400))
-    .force('center', d3.forceCenter(width / 2, height / 2) as any);
+    .force('link', d3.forceLink<any, any>(currentGraphData.links as any).id((d: any) => d.id).distance(250))  // 进一步增加节点间距
+    .force('charge', d3.forceManyBody().strength(-800))  // 增加排斥力
+    .force('collide', d3.forceCollide().radius((d: any) => d.isCenter ? 120 : 80).strength(1))  // 增加碰撞检测半径
+    .force('center', d3.forceCenter(width / 2, height / 2));
 
-  // 绘制连线
+  // 绘制连线 - 加粗并增加箭头
+  const defs = svg.append('defs');
+  
+  // 添加箭头标记
+  defs.append('marker')
+    .attr('id', 'arrowhead')
+    .attr('viewBox', '0 0 10 10')
+    .attr('refX', 8)
+    .attr('refY', 5)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+    .attr('fill', '#999');
+
   const link = svg.append('g')
     .selectAll('line')
     .data(currentGraphData.links)
     .join('line')
-    .attr('stroke', '#999')
-    .attr('stroke-opacity', 0.6)
-    .attr('stroke-width', 2);
+    .attr('stroke', '#555')
+    .attr('stroke-opacity', 0.9)
+    .attr('stroke-width', 4)  // 加粗连线
+    .attr('stroke-linecap', 'round')  // 更平滑的线端
+    .attr('marker-end', 'url(#arrowhead)');
 
   // 绘制节点组
   const node: any = svg.append('g')
@@ -125,23 +143,26 @@ const renderGraph = () => {
       }
     });
 
-  // 节点圆圈
+  // 节点圆圈 - 进一步放大节点
   node.append('circle')
-    .attr('r', (d: any) => d.isCenter ? 48 : 30)
+    .attr('r', (d: any) => d.isCenter ? 100 : 70)  // 中心节点100px，邻居节点70px
     .attr('fill', (d: any) => d.color)
     .attr('stroke', '#fff')
-    .attr('stroke-width', (d: any) => d.isCenter ? 5 : 3)
-    .style('filter', (d: any) => d.isCenter ? 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))' : 'none');
+    .attr('stroke-width', (d: any) => d.isCenter ? 10 : 7)  // 加粗描边
+    .style('filter', (d: any) => d.isCenter ? 'drop-shadow(0 8px 16px rgba(0,0,0,0.3))' : 'drop-shadow(0 5px 10px rgba(0,0,0,0.2))');
 
-  // 节点文字
+  // 节点文字 - 显示完整文本并调整样式
   node.append('text')
-    .text((d: any) => truncateLabel(d.name, 6))
+    .text((d: any) => d.name)  // 显示完整文本
     .attr('text-anchor', 'middle')
     .attr('dy', '0.35em')
-    .attr('font-size', (d: any) => d.isCenter ? '16px' : '13px')
+    .attr('font-size', (d: any) => d.isCenter ? '32px' : '24px')  // 进一步增大字体
     .attr('font-weight', (d: any) => d.isCenter ? 'bold' : 'normal')
     .attr('fill', 'white')
-    .style('pointer-events', 'none');
+    .style('pointer-events', 'none')
+    .style('text-shadow', '2px 2px 4px rgba(0,0,0,0.6)')  // 增强文字阴影
+    .style('user-select', 'none')  // 防止文字被选中
+    .style('font-family', '"Microsoft YaHei", sans-serif');  // 使用更清晰的字体
 
   // 添加节点标题提示
   node.append('title')
@@ -240,7 +261,29 @@ const truncateLabel = (name: string, limit: number = 6): string => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: #f8f9fa;
+  background: #f0f2f5;
+  padding: 20px;
+  overflow: auto;
+}
+
+/* 滚动条样式 */
+.graph-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.graph-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.graph-content::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.graph-content::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 #interactive-graph svg {
